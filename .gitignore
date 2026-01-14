@@ -1,0 +1,7 @@
+/.vscode
+/__pycache__
+/models/__pycache__
+/repositories/__pycache__
+/routers/__pycache__
+/services/__pycache__
+/tests/__pycache__
