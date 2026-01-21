@@ -5,3 +5,5 @@
 /routers/__pycache__
 /services/__pycache__
 /tests/__pycache__
+/.pytest_cache
+/.venv
