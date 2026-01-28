@@ -1,8 +1,10 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 import numpy as np
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status
 
 from model import load_or_train_model
@@ -10,13 +12,15 @@ from models.ads import AdRequest, AdResponse
 from routers.users import root_router
 from routers.users import router as user_router
 
+load_dotenv()
+
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.model = load_or_train_model()
+    app.state.model = load_or_train_model(use_mlflow=os.environ["USE_MLFLOW"])
     yield
 
 
