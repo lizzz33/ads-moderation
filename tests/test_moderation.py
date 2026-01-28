@@ -1,44 +1,54 @@
 from http import HTTPStatus
 
+import pytest
 
-def test_verified_seller_passes(app_client, base_ad_data):
-    """Верифицированный продавец всегда проходит"""
+
+@pytest.mark.parametrize(
+    "is_verified_seller, images_qty",
+    [
+        (True, 0),  # Верифицированный — проходит
+        (False, 3),  # Неверифицированный + картинки — проходит
+        (False, 0),  # Неверифицированный без картинок — не проходит
+    ],
+)
+def test_allowed_ad(app_client, base_ad_data, is_verified_seller, images_qty):
     data = base_ad_data.copy()
-    data["is_verified_seller"] = True
+    data["is_verified_seller"] = is_verified_seller
+    data["images_qty"] = images_qty
+
     response = app_client.post("/predict", json=data)
     assert response.status_code == HTTPStatus.OK
-    assert response.json()["is_allowed"]
+
+    json_data = response.json()
+    assert "is_violation" in json_data
+    assert "probability" in json_data
+    assert 0 <= json_data["probability"] <= 1
 
 
-def test_unverified_seller_with_images_passes(app_client, base_ad_data):
-    """Неверифицированный продавец с картинками проходит"""
-    data = base_ad_data.copy()
-    data["is_verified_seller"] = False
-    data["images_qty"] = 3
-    response = app_client.post("/predict", json=data)
-    assert response.status_code == HTTPStatus.OK
-    assert response.json()["is_allowed"]
-
-
-def test_unverified_seller_no_images_fails(app_client, base_ad_data):
-    """Неверифицированный продавец без картинок не проходит"""
-    data = base_ad_data.copy()
-    data["is_verified_seller"] = False
-    data["images_qty"] = 0
-    response = app_client.post("/predict", json=data)
-    assert response.status_code == HTTPStatus.OK
-    assert not response.json()["is_allowed"]
-
-
-def test_validation_error_wrong_type(app_client):
-    """Ошибка валидации при неправильном типе"""
-    response = app_client.post("/predict", json={"seller_id": "не число"})
+@pytest.mark.parametrize(
+    "invalid_data",
+    [
+        ({"seller_id": "не число"}),
+        ({"is_verified_seller": "да"}),
+        ({"item_id": None}),
+        ({"images_qty": -1}),
+        (None),
+        ([]),
+    ],
+)
+def test_validation_values(
+    app_client,
+    invalid_data,
+):
+    response = app_client.post("/predict", json=invalid_data)
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
 
-def test_validation_missing_field(app_client, base_ad_data):
-    """Ошибка валидации при отсутствии поля"""
-    data = base_ad_data.copy()
-    del data["seller_id"]  # Удаляем обязательное поле
-    response = app_client.post("/predict", json=data)
-    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+def test_is_violation_logic(app_client, base_ad_data):
+    result = app_client.post("/predict", json=base_ad_data).json()
+    assert result["is_violation"] == (result["probability"] >= 0.5)
+
+
+def test_client_without_model(app_client_without_model, base_ad_data):
+    response = app_client_without_model.post("/predict", json=base_ad_data)
+    assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE

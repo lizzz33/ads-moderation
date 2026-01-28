@@ -12,4 +12,5 @@ class AdRequest(BaseModel):
 
 
 class AdResponse(BaseModel):
-    is_allowed: bool
+    is_violation: bool
+    probability: float

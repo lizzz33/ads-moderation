@@ -5,11 +5,25 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import app
+from model import load_or_train_model
 
 
 @pytest.fixture
 def app_client() -> Generator[TestClient, None, None]:
+    app.state.model = load_or_train_model()
     return TestClient(app)
+
+
+@pytest.fixture
+def app_client_without_model():
+    model = app.state.model
+    app.state.model = None
+
+    try:
+        client = TestClient(app)
+        yield client
+    finally:
+        app.state.model = model
 
 
 @pytest.fixture(scope="function")
