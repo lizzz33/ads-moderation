@@ -14,3 +14,7 @@ class AdRequest(BaseModel):
 class AdResponse(BaseModel):
     is_violation: bool
     probability: float
+
+
+class AdSimpleRequest(BaseModel):
+    item_id: int

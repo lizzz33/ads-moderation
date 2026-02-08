@@ -15,7 +15,7 @@ class CreateUserInDto(BaseModel):
 
 
 class LoginUserInDto(BaseModel):
-    name: str
+    login: str
     password: str
 
 
@@ -35,59 +35,59 @@ async def register(data: CreateUserInDto) -> UserModel:
     return await user_service.register(dict(data))
 
 
-@router.get("/{user_id}")
-async def get(user_id: str) -> UserModel:
+@router.get("/{raw_user_id}")
+async def get(raw_user_id: int) -> UserModel:
     try:
-        return await user_service.get(user_id)
+        return await user_service.get(raw_user_id)
     except UserNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Пользователь {user_id} не найден",
+            detail=f"Пользователь {raw_user_id} не найден",
         )
 
 
 @router.get("/current/")
 async def get_current(request: Request) -> UserModel:
-    user_id = request.cookies.get("x-user-id")
+    raw_user_id = request.cookies.get("x-user-id")
 
     try:
-        return await user_service.get(user_id)
+        return await user_service.get(int(raw_user_id))
     except UserNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Пользователь {user_id} не найден",
+            detail=f"Пользователь {raw_user_id} не найден",
         )
 
 
-@router.patch("/deactivate/{user_id}")
-async def deactivate(user_id: str, request: Request) -> UserModel:
-    user_id = request.cookies.get("x-user-id")
+@router.patch("/deactivate/{raw_user_id}")
+async def deactivate(raw_user_id: int, request: Request) -> UserModel:
+    raw_user_id = request.cookies.get("x-user-id")
 
-    if not user_id:
+    if not raw_user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",
         )
 
-    return await user_service.deactivate(user_id)
+    return await user_service.deactivate(int(raw_user_id))
 
 
-@router.delete("/{user_id}")
-async def delete(user_id: str, request: Request) -> UserModel:
-    user_id = request.cookies.get("x-user-id")
+@router.delete("/{raw_user_id}")
+async def delete(raw_user_id: int, request: Request) -> UserModel:
+    current_user_id = request.cookies.get("x-user-id")
 
-    if not user_id:
+    if not current_user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",
         )
 
     try:
-        return await user_service.delete(user_id)
+        return await user_service.delete(int(raw_user_id))
     except UserNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Пользователь {user_id} не найден",
+            detail=f"Пользователь {raw_user_id} не найден",
         )
 
 
@@ -97,7 +97,7 @@ async def login(
     response: Response,
 ) -> UserModel:
     try:
-        user = await user_service.login(dto.name, dto.password)
+        user = await user_service.login(dto.login, dto.password)
 
         response.set_cookie(
             key="x-user-id",

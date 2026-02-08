@@ -1,90 +1,133 @@
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
-from uuid import uuid4
 
+from clients.postgres import get_pg_connection
 from errors import UserNotFoundError
 from models.users import UserModel
 
-_COLLECTION: list[Mapping[str, Any]] = []
-
 
 @dataclass(frozen=True)
-class UserStorage:
-    async def create(self, **values: Mapping[str, Any]) -> Mapping[str, Any]:
-        user = dict(
-            id=str(uuid4()),
-            **values,
-        )
-        _COLLECTION.append(user)
+class UserPostgresStorage:
+    async def create(self, name: str, password: str, email: str) -> Mapping[str, Any]:
+        query = """
+            INSERT INTO account (name, password, email)
+            VALUES ($1, $2, $3)
+            RETURNING *
+        """
 
-        return user
+        async with get_pg_connection() as connection:
+            return dict(await connection.fetchrow(query, name, password, email))
 
-    async def get_by_name_and_password(self, name: str, password: str) -> Mapping[str, Any]:
-        users = [
-            user for user in _COLLECTION if user["name"] == name and user["password"] == password
-        ]
+    async def delete(self, id: int) -> Mapping[str, Any]:
+        query = """
+            DELETE FROM account
+            WHERE id = $1::INTEGER
+            RETURNING *
+        """
 
-        return users[0]
+        async with get_pg_connection() as connection:
+            row = await connection.fetchrow(query, id)
 
-    async def get(self, user_id: str) -> Mapping[str, Any]:
-        user = await self._get_user_by_id(user_id)
-        return user
+            if row:
+                return dict(row)
 
-    async def get_many(self) -> Sequence[Mapping[str, Any]]:
-        return _COLLECTION
-
-    async def delete(self, user_id: str) -> Mapping[str, Any]:
-        user = await self._get_user_by_id(user_id)
-
-        index = _COLLECTION.index(user)
-        del _COLLECTION[index]
-
-        return user
-
-    async def update(self, user_id: str, **changes: Mapping[str, Any]) -> Mapping[str, Any]:
-        user = await self._get_user_by_id(user_id)
-
-        for key, value in changes.items():
-            user[key] = value
-
-        return user
-
-    async def _get_user_by_id(self, user_id: str) -> UserModel:
-        users = [user for user in _COLLECTION if user["id"] == user_id]
-
-        if not users:
             raise UserNotFoundError()
 
-        return users[0]
+    async def select(self, id: int) -> Mapping[str, Any]:
+        query = """
+            SELECT *
+            FROM account
+            WHERE id = $1::INTEGER
+            LIMIT 1
+        """
+
+        async with get_pg_connection() as connection:
+            row = await connection.fetchrow(query, id)
+
+            if row:
+                return dict(row)
+
+            raise UserNotFoundError()
+
+    async def select_by_login_and_password(self, login: str, password: str) -> Mapping[str, Any]:
+        query = """
+            SELECT *
+            FROM account
+            WHERE
+                email = $1::TEXT
+                AND password = $2::TEXT
+            LIMIT 1
+        """
+
+        async with get_pg_connection() as connection:
+            row = await connection.fetchrow(query, login, password)
+
+            if row:
+                return dict(row)
+
+            raise UserNotFoundError()
+
+    async def select_many(self) -> Sequence[Mapping[str, Any]]:
+        query = """
+            SELECT *
+            FROM account
+        """
+
+        async with get_pg_connection() as connection:
+            rows = await connection.fetch(query)
+
+            return [dict(row) for row in rows]
+
+    async def update(self, id: int, **updates: Any) -> Mapping[str, Any]:
+        keys, args = [], []
+
+        for key, value in updates.items():
+            keys.append(key)
+            args.append(value)
+
+        fields_str = ", ".join([f"{key} = ${i + 2}" for i, key in enumerate(keys)])
+
+        query = f"""
+            UPDATE account
+            SET {fields_str}
+            WHERE id = $1::INTEGER
+            RETURNING *
+        """
+
+        async with get_pg_connection() as connection:
+            row = await connection.fetchrow(query, id, *args)
+
+            if row:
+                return dict(row)
+
+            raise UserNotFoundError()
 
 
 @dataclass(frozen=True)
 class UserRepository:
-    user_storage: UserStorage = UserStorage()
+    user_postgres_storage: UserPostgresStorage = UserPostgresStorage()
 
     async def create(self, name: str, password: str, email: str) -> UserModel:
-        raw_user = await self.user_storage.create(
-            name=name,
-            password=password,
-            email=email,
-        )
+        raw_user = await self.user_postgres_storage.create(name, password, email)
         return UserModel(**raw_user)
 
-    async def get_by_name_and_password(self, name: str, password: str) -> UserModel:
-        raw_user = await self.user_storage.get_by_name_and_password(name, password)
+    async def get_by_login_and_password(self, login: str, password: str) -> UserModel:
+        raw_user = await self.user_postgres_storage.select_by_login_and_password(login, password)
         return UserModel(**raw_user)
 
-    async def get(self, user_id: str) -> UserModel:
-        raw_user = await self.user_storage.get(user_id)
+    async def get(self, user_id: int) -> UserModel:
+        raw_user = await self.user_postgres_storage.select(user_id)
         return UserModel(**raw_user)
 
-    async def delete(self, user_id: str) -> UserModel:
-        raw_user = await self.user_storage.delete(user_id)
+    async def delete(self, user_id: int) -> UserModel:
+        raw_user = await self.user_postgres_storage.delete(user_id)
         return UserModel(**raw_user)
 
-    async def update(self, user_id: str, **changes: Mapping[str, Any]) -> UserModel:
-        raw_user = await self.user_storage.update(user_id, **changes)
+    async def update(self, user_id: int, **changes: Mapping[str, Any]) -> UserModel:
+        raw_user = await self.user_postgres_storage.update(user_id, **changes)
         return UserModel(**raw_user)
 
     async def get_many(self) -> Sequence[UserModel]:
-        return [UserModel(**raw_user) for raw_user in await self.user_storage.get_many()]
+        return [
+            UserModel(**raw_user) for raw_user in await self.user_postgres_storage.select_many()
+        ]

@@ -1,9 +1,12 @@
+import asyncio
 from http import HTTPStatus
 from typing import Any, Generator, Mapping
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
+from clients.postgres import get_pg_connection
 from main import app
 from model import load_or_train_model
 
@@ -66,3 +69,24 @@ def base_ad_data():
         "category": 1,
         "images_qty": 0,
     }
+
+
+@pytest.fixture
+def event_loop():
+    """Создает event loop для всех тестов"""
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest_asyncio.fixture
+async def db_connection():
+    """Асинхронная фикстура для подключения к БД"""
+    async with get_pg_connection() as conn:
+        # Очищаем перед использованием
+        await conn.execute("DELETE FROM advertisement")
+        await conn.execute("DELETE FROM account")
+        yield conn
+        # Очищаем после использования
+        await conn.execute("DELETE FROM advertisement")
+        await conn.execute("DELETE FROM account")

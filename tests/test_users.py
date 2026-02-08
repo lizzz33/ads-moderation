@@ -57,7 +57,7 @@ def test_get_many_users(app_client: TestClient, some_user: Mapping[str, Any]):
     assert get_users_response.status_code == HTTPStatus.OK
 
     users = get_users_response.json()
-    assert len(users) == 1
+    assert len([user for user in users if user["id"] == some_user["id"]]) == 1
 
     delete_response = app_client.delete(
         f"/users/{some_user['id']}",
@@ -69,7 +69,7 @@ def test_get_many_users(app_client: TestClient, some_user: Mapping[str, Any]):
     assert get_users_response.status_code == HTTPStatus.OK
 
     users = get_users_response.json()
-    assert len(users) == 0
+    assert len([user for user in users if user["id"] == some_user["id"]]) == 0
 
 
 @pytest.mark.parametrize("name", ["Иванов И.И."])
@@ -78,12 +78,12 @@ def test_login_user(app_client: TestClient, some_user: Mapping[str, Any]):
     login_response = app_client.post(
         "/login",
         json=dict(
-            name=some_user["name"],
+            login=some_user["email"],
             password=PASSWORD,
         ),
     )
     assert login_response.status_code == HTTPStatus.OK
-    assert login_response.cookies.get("x-user-id") == some_user["id"]
+    assert login_response.cookies.get("x-user-id") == str(some_user["id"])
 
     logged_user = login_response.json()
     assert logged_user["id"] == some_user["id"]
@@ -95,7 +95,7 @@ def test_get_current_user(app_client: TestClient, some_user: Mapping[str, Any]):
     get_response = app_client.get(
         "/users/current/",
         cookies={
-            "x-user-id": some_user["id"],
+            "x-user-id": str(some_user["id"]),
         },
     )
     assert get_response.status_code == HTTPStatus.OK
