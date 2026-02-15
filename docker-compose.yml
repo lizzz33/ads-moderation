@@ -1,0 +1,108 @@
+services:
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: moderation
+    ports:
+      - "6432:5432"
+    volumes:
+      # - postgres_data:/var/lib/postgresql/data
+      - ./app/db/migrations/V001__initial.sql:/docker-entrypoint-initdb.d/V001__initial.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d moderation"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+  redpanda:
+    image: redpandadata/redpanda:latest
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - "1G"
+      - --reserve-memory
+      - "0M"
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+    ports:
+      - "9092:9092"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9644/v1/status/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  console:
+    image: redpandadata/console:latest
+    environment:
+      KAFKA_BROKERS: redpanda:29092
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redpanda
+
+  app:
+    build: .
+    ports:
+      - "8003:8003"
+    environment:
+      USE_MLFLOW: "true"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: moderation
+      DB_HOST: postgres
+      DB_PORT: 5432
+      KAFKA_BOOTSTRAP: redpanda:29092
+      TOPIC: moderation
+      DLQ_TOPIC: moderation_dlq
+      CONSUMER_GROUP: moderation-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+
+  worker:
+    build: .
+    environment:
+      USE_MLFLOW: "true"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: moderation
+      DB_HOST: postgres
+      DB_PORT: 5432
+      KAFKA_BOOTSTRAP: redpanda:29092
+      TOPIC: moderation
+      DLQ_TOPIC: moderation_dlq
+      CONSUMER_GROUP: moderation-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+    command: python -m app.workers.moderation_worker
+
+volumes:
+  postgres_data:
+    driver: local
+  redpanda_data:
+    driver: local

@@ -6,9 +6,9 @@ import pytest
 @pytest.mark.parametrize(
     "is_verified_seller, images_qty",
     [
-        (True, 0),  # Верифицированный — проходит
-        (False, 3),  # Неверифицированный + картинки — проходит
-        (False, 0),  # Неверифицированный без картинок — не проходит
+        (True, 0),
+        (False, 3),
+        (False, 0),
     ],
 )
 def test_allowed_ad(app_client, base_ad_data, is_verified_seller, images_qty):
@@ -28,18 +28,15 @@ def test_allowed_ad(app_client, base_ad_data, is_verified_seller, images_qty):
 @pytest.mark.parametrize(
     "invalid_data",
     [
-        ({"seller_id": "не число"}),
-        ({"is_verified_seller": "да"}),
-        ({"item_id": None}),
-        ({"images_qty": -1}),
-        (None),
-        ([]),
+        {"seller_id": "не число"},
+        {"is_verified_seller": "да"},
+        {"item_id": None},
+        {"images_qty": -1},
+        None,
+        [],
     ],
 )
-def test_validation_values(
-    app_client,
-    invalid_data,
-):
+def test_validation_values(app_client, invalid_data):
     response = app_client.post("/predict", json=invalid_data)
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 

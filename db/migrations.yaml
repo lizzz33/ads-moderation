@@ -1,1 +1,0 @@
-conn: "dbname=HW user=postgres host=localhost port=5432 password=postgres"

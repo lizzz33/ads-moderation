@@ -3,9 +3,9 @@ from typing import Sequence
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
-from errors import UserNotFoundError
-from models.users import UserModel
-from services.users import UserService
+from app.errors import UserNotFoundError
+from app.models.users import UserModel
+from app.services.users import UserService
 
 
 class CreateUserInDto(BaseModel):

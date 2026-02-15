@@ -8,7 +8,7 @@ from mlflow.sklearn import log_model
 from mlflow.tracking import MlflowClient
 from sklearn.linear_model import LogisticRegression
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -79,11 +79,11 @@ def check_model_in_mlflow(model_name: str = "moderation-model", stage: str = "Pr
 
 
 def load_or_train_model(
-    use_mlflow=True,
+    use_mlflow="true",
     path="model.pkl",
     model_name: str = "moderation-model",
 ):
-    if use_mlflow:
+    if use_mlflow == "true":
         if not check_model_in_mlflow():
             registration_model()
 

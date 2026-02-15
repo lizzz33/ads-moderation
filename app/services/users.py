@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from errors import UserNotFoundError
-from models.users import UserModel
-from repositories.users import UserRepository
+from app.errors import UserNotFoundError
+from app.models.users import UserModel
+from app.repositories.users import UserRepository
 
 
 @dataclass(frozen=True)

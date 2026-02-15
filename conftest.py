@@ -1,32 +1,90 @@
 import asyncio
 from http import HTTPStatus
 from typing import Any, Generator, Mapping
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
-from clients.postgres import get_pg_connection
-from main import app
-from model import load_or_train_model
+from app.clients.postgres import get_pg_connection
+from app.main import app
+from app.model import load_or_train_model
 
 
 @pytest.fixture
 def app_client() -> Generator[TestClient, None, None]:
     app.state.model = load_or_train_model()
-    return TestClient(app)
+    yield TestClient(app)
+    app.state.model = None
 
 
 @pytest.fixture
 def app_client_without_model():
     model = app.state.model
     app.state.model = None
-
     try:
         client = TestClient(app)
         yield client
     finally:
         app.state.model = model
+
+
+class MockPool:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def acquire(self):
+        class MockConnection:
+            def __init__(self, conn):
+                self._conn = conn
+
+            async def __aenter__(self):
+                return self._conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        return MockConnection(self._conn)
+
+
+@pytest.fixture
+async def async_client(db_connection):
+    app.state.model = load_or_train_model()
+    app.state.kafka_producer = AsyncMock()
+    app.state.kafka_producer.send_moderation_request = AsyncMock()
+    app.state.pg_pool = MockPool(db_connection)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
+
+    app.state.model = None
+    app.state.kafka_producer = None
+    app.state.pg_pool = None
+
+
+@pytest.fixture
+async def async_client_without_kafka(db_connection):
+    app.state.model = load_or_train_model()
+    app.state.kafka_producer = None
+    app.state.pg_pool = MockPool(db_connection)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
+
+    # Очистка после теста
+    app.state.model = None
+    app.state.kafka_producer = None
+    app.state.pg_pool = None
+
+
+@pytest.fixture
+def mock_kafka():
+    producer = AsyncMock()
+    producer.send_moderation_request = AsyncMock()
+    producer.send_json = AsyncMock()
+    return producer
 
 
 @pytest.fixture(scope="function")
@@ -44,18 +102,15 @@ def some_user(
         ),
     )
     created_user = create_response.json()
-
     assert create_response.status_code == HTTPStatus.CREATED
+
     yield created_user
 
     deleted_response = app_client.delete(
         f"/users/{created_user['id']}",
         cookies={"x-user-id": str(created_user["id"])},
     )
-    assert (
-        deleted_response.status_code == HTTPStatus.OK
-        or deleted_response.status_code == HTTPStatus.NOT_FOUND
-    )
+    assert deleted_response.status_code in (HTTPStatus.OK, HTTPStatus.NOT_FOUND)
 
 
 @pytest.fixture
@@ -73,20 +128,56 @@ def base_ad_data():
 
 @pytest.fixture
 def event_loop():
-    """Создает event loop для всех тестов"""
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     yield loop
     loop.close()
 
 
 @pytest_asyncio.fixture
 async def db_connection():
-    """Асинхронная фикстура для подключения к БД"""
     async with get_pg_connection() as conn:
-        # Очищаем перед использованием
+        await conn.execute("DELETE FROM moderation_results")
         await conn.execute("DELETE FROM advertisement")
         await conn.execute("DELETE FROM account")
+
         yield conn
-        # Очищаем после использования
+
+        await conn.execute("DELETE FROM moderation_results")
         await conn.execute("DELETE FROM advertisement")
         await conn.execute("DELETE FROM account")
+
+
+@pytest.fixture
+async def test_ad(db_connection):
+    user_id = await db_connection.fetchval(
+        "INSERT INTO account (name, email, password) VALUES ($1, $2, $3) RETURNING id",
+        "Test User",
+        "test@mail.com",
+        "hash",
+    )
+
+    item_id = await db_connection.fetchval(
+        """
+        INSERT INTO advertisement 
+        (seller_id, is_verified_seller, name, description, category, images_qty)
+        VALUES ($1, $2, $3, $4, $5, $6) 
+        RETURNING item_id
+        """,
+        user_id,
+        True,
+        "Test Ad",
+        "Description",
+        1,
+        3,
+    )
+    return item_id
+
+
+@pytest.fixture
+async def test_task(db_connection, test_ad):
+    task_id = await db_connection.fetchval(
+        "INSERT INTO moderation_results (item_id, status) VALUES ($1, 'pending') RETURNING id",
+        test_ad,
+    )
+    return task_id

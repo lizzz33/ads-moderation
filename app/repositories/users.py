@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from clients.postgres import get_pg_connection
-from errors import UserNotFoundError
-from models.users import UserModel
+from app.clients.postgres import get_pg_connection
+from app.errors import UserNotFoundError
+from app.models.users import UserModel
 
 
 @dataclass(frozen=True)

@@ -13,7 +13,7 @@ async def get_pg_connection() -> AsyncGenerator[asyncpg.Connection, None]:
     connection: asyncpg.Connection = await asyncpg.connect(
         user=os.getenv("DB_USER", "postgres"),
         password=os.getenv("DB_PASSWORD", "postgres"),
-        database=os.getenv("DB_NAME", "lesson"),
+        database=os.getenv("DB_NAME", "moderation"),
         host=os.getenv("DB_HOST", "localhost"),
         port=int(os.getenv("DB_PORT", "6432")),
     )

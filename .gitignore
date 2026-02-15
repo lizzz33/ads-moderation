@@ -6,3 +6,6 @@ __pycache__
 /mlflow.db
 my_test.py
 .env
+manual_tests.py
+create_table.py
+model.pkl

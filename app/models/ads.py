@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -18,3 +20,16 @@ class AdResponse(BaseModel):
 
 class AdSimpleRequest(BaseModel):
     item_id: int
+
+
+class AsyncPredictResponse(BaseModel):
+    task_id: int
+    status: str
+    message: str
+
+
+class ModerationResultResponse(BaseModel):
+    task_id: int
+    status: str  # pending, completed, failed
+    is_violation: Optional[bool] = None
+    probability: Optional[float] = None

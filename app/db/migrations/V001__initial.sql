@@ -15,3 +15,14 @@ CREATE TABLE  IF NOT EXISTS public.advertisement (
     category INTEGER NOT NULL,
     images_qty INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS public.moderation_results (
+    id SERIAL PRIMARY KEY,
+    item_id INTEGER NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    is_violation BOOLEAN,
+    probability FLOAT,
+    error_message TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP
+);
