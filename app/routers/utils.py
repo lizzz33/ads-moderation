@@ -19,15 +19,7 @@ def check_kafka(producer):
         raise HTTPException(status_code=503, detail="Kafka недоступен")
 
 
-def prepare_features_from_ad(ad):
-    is_verified = 1 if ad.is_verified_seller else 0
-    images_norm = min(ad.images_qty / 20.0, 1.0)
-    desc_len_norm = min(len(ad.description) / 5000.0, 1.0)
-    category_norm = ad.category / 100.0
-    return np.array([[is_verified, images_norm, desc_len_norm, category_norm]])
-
-
-def prepare_features_from_row(row):
+def prepare_features(row):
     is_verified = 1 if row["is_verified_seller"] else 0
     images_norm = min(row["images_qty"] / 20.0, 1.0) if row["images_qty"] else 0.0
     desc_len_norm = min(len(row["description"] or "") / 5000.0, 1.0)

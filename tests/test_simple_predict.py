@@ -3,9 +3,15 @@ from http import HTTPStatus
 import pytest
 
 
-def test_simple_predict_not_found(app_client):
-    response = app_client.post("/simple_predict", json={"item_id": 999999})
-    assert response.status_code == HTTPStatus.NOT_FOUND
+@pytest.mark.asyncio
+async def test_simple_predict_with_join(async_client, test_ad):
+    response = await async_client.post("/simple_predict", json={"item_id": test_ad})
+    assert response.status_code == HTTPStatus.OK
+
+    data = response.json()
+    assert "is_violation" in data
+    assert "probability" in data
+    assert 0 <= data["probability"] <= 1
 
 
 @pytest.mark.parametrize(
@@ -27,30 +33,35 @@ def test_simple_predict_validation(app_client, invalid_data):
 @pytest.mark.asyncio
 async def test_simple_predict_logic(app_client, db_connection):
 
-    async def create_test_ad(conn):
-        user_id = await conn.fetchval(
-            "INSERT INTO account (name, email, password) VALUES ($1, $2, $3) RETURNING id",
-            "Test User",
+    async def create_test_seller_and_ad(conn):
+        seller_id = await conn.fetchval(
+            """
+            INSERT INTO sellers (username, email, password, is_verified) 
+            VALUES ($1, $2, $3, $4) 
+            RETURNING seller_id
+            """,
+            "test_user",
             "test@example.com",
             "hash",
+            True,
         )
 
-        return await conn.fetchval(
+        item_id = await conn.fetchval(
             """
             INSERT INTO advertisement 
-            (seller_id, is_verified_seller, name, description, category, images_qty)
-            VALUES ($1, $2, $3, $4, $5, $6) 
+            (seller_id, name, description, category, images_qty)
+            VALUES ($1, $2, $3, $4, $5) 
             RETURNING item_id
             """,
-            user_id,
-            True,
+            seller_id,
             "Test Ad",
             "Test description",
             1,
             5,
         )
+        return item_id
 
-    item_id = await create_test_ad(db_connection)
+    item_id = await create_test_seller_and_ad(db_connection)
 
     response = app_client.post("/simple_predict", json={"item_id": item_id})
     assert response.status_code == HTTPStatus.OK
@@ -68,43 +79,48 @@ def test_simple_predict_without_model(app_client_without_model):
 
 
 @pytest.mark.parametrize(
-    "is_verified_seller, images_qty, category, description_length",
+    "is_verified, images_qty, category, description_length",
     [
         (True, 5, 1, 100),  # Верифицированный продавец
-        (False, 10, 50, 500),  # Много картинок
-        (False, 0, 99, 10),  # Без картинок
-        (True, 0, 1, 5000),  # Длинное описание
+        (False, 10, 50, 500),  # Неверифицированный, много картинок
+        (False, 0, 99, 10),  # Неверифицированный, без картинок
+        (True, 0, 1, 5000),  # Верифицированный, длинное описание
     ],
 )
 @pytest.mark.asyncio
 async def test_simple_predict_various_cases(
-    app_client, db_connection, is_verified_seller, images_qty, category, description_length
+    app_client, db_connection, is_verified, images_qty, category, description_length
 ):
 
     async def create_test_case(conn):
-        user_id = await conn.fetchval(
-            "INSERT INTO account (name, email, password) VALUES ($1, $2, $3) RETURNING id",
-            f"User_{is_verified_seller}",
+        seller_id = await conn.fetchval(
+            """
+            INSERT INTO sellers (username, email, password, is_verified) 
+            VALUES ($1, $2, $3, $4) 
+            RETURNING seller_id
+            """,
+            f"user_{is_verified}",
             f"user_{category}@test.com",
             "hash",
+            is_verified,
         )
 
         description = "x" * description_length if description_length > 0 else ""
 
-        return await conn.fetchval(
+        item_id = await conn.fetchval(
             """
             INSERT INTO advertisement 
-            (seller_id, is_verified_seller, name, description, category, images_qty)
-            VALUES ($1, $2, $3, $4, $5, $6) 
+            (seller_id, name, description, category, images_qty)
+            VALUES ($1, $2, $3, $4, $5) 
             RETURNING item_id
             """,
-            user_id,
-            is_verified_seller,
+            seller_id,
             f"Test Ad {category}",
             description,
             category,
             images_qty,
         )
+        return item_id
 
     item_id = await create_test_case(db_connection)
 
@@ -114,3 +130,9 @@ async def test_simple_predict_various_cases(
     result = response.json()
     assert isinstance(result["is_violation"], bool)
     assert isinstance(result["probability"], float)
+
+
+@pytest.mark.asyncio
+async def test_simple_predict_seller_not_found(async_client):
+    response = await async_client.post("/simple_predict", json={"item_id": 999999})
+    assert response.status_code == HTTPStatus.NOT_FOUND

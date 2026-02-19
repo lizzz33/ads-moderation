@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 from http import HTTPStatus
 from typing import Any, Generator, Mapping
 from unittest.mock import AsyncMock
@@ -73,7 +74,6 @@ async def async_client_without_kafka(db_connection):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
 
-    # Очистка после теста
     app.state.model = None
     app.state.kafka_producer = None
     app.state.pg_pool = None
@@ -95,11 +95,7 @@ def some_user(
 ) -> Generator[Mapping[str, Any], None, None]:
     create_response = app_client.post(
         "/users",
-        json=dict(
-            name=name,
-            password=password,
-            email=f"{name.lower().replace('.', '_').replace(' ', '_')}@example.com",
-        ),
+        json=dict(name=name, password=password, email=f"user_{uuid.uuid4().hex[:10]}@example.com"),
     )
     created_user = create_response.json()
     assert create_response.status_code == HTTPStatus.CREATED
@@ -137,35 +133,47 @@ def event_loop():
 @pytest_asyncio.fixture
 async def db_connection():
     async with get_pg_connection() as conn:
+        # УБИРАЕМ transaction() - данные будут видны всем соединениям
         await conn.execute("DELETE FROM moderation_results")
         await conn.execute("DELETE FROM advertisement")
+        await conn.execute("DELETE FROM sellers")
         await conn.execute("DELETE FROM account")
 
         yield conn
 
+        # Очищаем после теста (если нужно)
         await conn.execute("DELETE FROM moderation_results")
         await conn.execute("DELETE FROM advertisement")
+        await conn.execute("DELETE FROM sellers")
         await conn.execute("DELETE FROM account")
 
 
 @pytest.fixture
-async def test_ad(db_connection):
-    user_id = await db_connection.fetchval(
-        "INSERT INTO account (name, email, password) VALUES ($1, $2, $3) RETURNING id",
-        "Test User",
-        "test@mail.com",
+async def test_seller(db_connection):
+    seller_id = await db_connection.fetchval(
+        """
+        INSERT INTO sellers (username, email, password, is_verified) 
+        VALUES ($1, $2, $3, $4) 
+        RETURNING seller_id
+        """,
+        "test_seller",
+        "seller@test.com",
         "hash",
+        True,
     )
+    return seller_id
 
+
+@pytest.fixture
+async def test_ad(db_connection, test_seller):
     item_id = await db_connection.fetchval(
         """
         INSERT INTO advertisement 
-        (seller_id, is_verified_seller, name, description, category, images_qty)
-        VALUES ($1, $2, $3, $4, $5, $6) 
+        (seller_id, name, description, category, images_qty)
+        VALUES ($1, $2, $3, $4, $5) 
         RETURNING item_id
         """,
-        user_id,
-        True,
+        test_seller,
         "Test Ad",
         "Description",
         1,
@@ -176,6 +184,7 @@ async def test_ad(db_connection):
 
 @pytest.fixture
 async def test_task(db_connection, test_ad):
+    """Создаёт тестовую задачу модерации"""
     task_id = await db_connection.fetchval(
         "INSERT INTO moderation_results (item_id, status) VALUES ($1, 'pending') RETURNING id",
         test_ad,

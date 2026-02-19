@@ -17,7 +17,7 @@ from app.clients.settings import (
     TOPIC,
 )
 from app.model import load_or_train_model
-from app.routers.utils import get_prediction, prepare_features_from_row
+from app.routers.utils import get_prediction, prepare_features
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -77,9 +77,14 @@ async def main():
 
                     row = await conn.fetchrow(
                         """
-                        SELECT is_verified_seller, images_qty, description, category 
-                        FROM advertisement 
-                        WHERE item_id = $1
+                        SELECT 
+                            s.is_verified as is_verified_seller,
+                            a.images_qty,
+                            a.description,
+                            a.category
+                        FROM advertisement a
+                        JOIN sellers s ON a.seller_id = s.seller_id
+                        WHERE a.item_id = $1
                         """,
                         item_id,
                     )
@@ -102,7 +107,7 @@ async def main():
                     if not task_id:
                         raise ValueError(f"Нет задачи для item_id={item_id}")
 
-                    features = prepare_features_from_row(row)
+                    features = prepare_features(row)
                     proba = get_prediction(model, features)
                     is_violation = proba >= 0.5
 
@@ -115,7 +120,7 @@ async def main():
                             processed_at = CURRENT_TIMESTAMP
                         WHERE id = $3
                         """,
-                        is_violation,
+                        bool(is_violation),
                         float(proba),
                         task_id,
                     )
