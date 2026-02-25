@@ -33,3 +33,13 @@ class ModerationResultResponse(BaseModel):
     status: str  # pending, completed, failed
     is_violation: Optional[bool] = None
     probability: Optional[float] = None
+
+
+class CloseAdRequest(BaseModel):
+    item_id: int
+
+
+class CloseAdResponse(BaseModel):
+    success: bool
+    message: str
+    item_id: int

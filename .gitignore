@@ -9,3 +9,4 @@ my_test.py
 manual_tests.py
 create_table.py
 model.pkl
+.coverage

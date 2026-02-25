@@ -3,6 +3,7 @@ from http import HTTPStatus
 import pytest
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "is_verified_seller, images_qty",
     [
@@ -25,6 +26,7 @@ def test_allowed_ad(app_client, base_ad_data, is_verified_seller, images_qty):
     assert 0 <= json_data["probability"] <= 1
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "invalid_data",
     [
@@ -41,11 +43,13 @@ def test_validation_values(app_client, invalid_data):
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
 
+@pytest.mark.unit
 def test_is_violation_logic(app_client, base_ad_data):
     result = app_client.post("/predict", json=base_ad_data).json()
     assert result["is_violation"] == (result["probability"] >= 0.5)
 
 
+@pytest.mark.unit
 def test_client_without_model(app_client_without_model, base_ad_data):
     response = app_client_without_model.post("/predict", json=base_ad_data)
     assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE

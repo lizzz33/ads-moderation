@@ -5,9 +5,10 @@ import pytest
 from app.workers.moderation_worker import MAX_RETRIES, handle_error, main
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_worker_processes_message_successfully(db_connection, test_ad, test_task):
-
+    """Интеграционный тест успешной обработки сообщения воркером"""
     mock_msg = AsyncMock()
     mock_msg.value = {"item_id": test_ad, "task_id": test_task, "retry_count": 0}
 
@@ -32,12 +33,13 @@ async def test_worker_processes_message_successfully(db_connection, test_ad, tes
     assert result["probability"] is not None
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_worker_handles_missing_ad(db_connection, test_task):
-
+    """Интеграционный тест обработки сообщения с несуществующим объявлением"""
     mock_msg = AsyncMock()
     mock_msg.value = {
-        "item_id": 999999,  # несуществующий ID
+        "item_id": 999999,
         "task_id": test_task,
         "retry_count": MAX_RETRIES - 1,
     }
@@ -61,8 +63,10 @@ async def test_worker_handles_missing_ad(db_connection, test_task):
     assert result["status"] == "failed"
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_worker_retry_mechanism(test_ad, test_task):
+    """Юнит-тест механизма повторных попыток при ошибке"""
     mock_msg = AsyncMock()
     mock_msg.value = {"item_id": test_ad, "task_id": test_task, "retry_count": 0}
 
@@ -84,9 +88,10 @@ async def test_worker_retry_mechanism(test_ad, test_task):
     assert mock_producer.send_json.call_count > 0
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_worker_sends_to_dlq_after_max_retries(test_ad, test_task):
-
+    """Юнит-тест отправки в DLQ после превышения максимальных попыток"""
     mock_msg = AsyncMock()
     mock_msg.value = {
         "item_id": test_ad,
@@ -115,9 +120,10 @@ async def test_worker_sends_to_dlq_after_max_retries(test_ad, test_task):
     assert "error" in call_args[1]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_handle_error_function():
-    """Тест функции handle_error"""
+    """Юнит-тест функции обработки ошибок"""
     mock_producer = AsyncMock()
     mock_conn = AsyncMock()
 

@@ -1,7 +1,10 @@
 from dataclasses import dataclass
+from datetime import timedelta
+from json import dumps, loads
 from typing import Any, Mapping, Sequence
 
 from app.clients.postgres import get_pg_connection
+from app.clients.redis import get_redis_connection
 from app.errors import UserNotFoundError
 from app.models.users import UserModel
 
@@ -104,8 +107,37 @@ class UserPostgresStorage:
 
 
 @dataclass(frozen=True)
+class UserRedisStorage:
+    _TTL: timedelta = timedelta(days=1)
+
+    async def set(self, row_id: int, row: Mapping[str, Any]) -> None:
+        async with get_redis_connection() as connection:
+            pipeline = connection.pipeline()
+            pipeline.set(
+                name=str(row_id),
+                value=dumps(row),
+            )
+            pipeline.expire(str(row_id), self._TTL)
+            await pipeline.execute()
+
+    async def get(self, row_id: int) -> Mapping[str, Any] | None:
+        async with get_redis_connection() as connection:
+            row = await connection.get(str(row_id))
+
+            if row:
+                return loads(row)
+
+            return None
+
+    async def delete(self, row_id: int) -> None:
+        async with get_redis_connection() as connection:
+            await connection.delete(str(row_id))
+
+
+@dataclass(frozen=True)
 class UserRepository:
     user_postgres_storage: UserPostgresStorage = UserPostgresStorage()
+    user_redis_storage: UserRedisStorage = UserRedisStorage()
 
     async def create(self, name: str, password: str, email: str) -> UserModel:
         raw_user = await self.user_postgres_storage.create(name, password, email)
@@ -116,7 +148,12 @@ class UserRepository:
         return UserModel(**raw_user)
 
     async def get(self, user_id: int) -> UserModel:
+        if raw_user := await self.user_redis_storage.get(user_id):
+            return UserModel(**raw_user)
+
         raw_user = await self.user_postgres_storage.select(user_id)
+        await self.user_redis_storage.set(user_id, raw_user)
+
         return UserModel(**raw_user)
 
     async def delete(self, user_id: int) -> UserModel:
@@ -125,6 +162,7 @@ class UserRepository:
 
     async def update(self, user_id: int, **changes: Mapping[str, Any]) -> UserModel:
         raw_user = await self.user_postgres_storage.update(user_id, **changes)
+        await self.user_redis_storage.delete(str(user_id))
         return UserModel(**raw_user)
 
     async def get_many(self) -> Sequence[UserModel]:

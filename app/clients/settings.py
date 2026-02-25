@@ -19,8 +19,13 @@ DB_PORT = os.getenv("DB_PORT", "5432")
 
 PG_DSN = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
-
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
 RETRY_DELAY_SECONDS = int(os.getenv("RETRY_DELAY_SECONDS", "5"))
+
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_DB = int(os.getenv("REDIS_DB", 0))
+REDIS_TTL = int(os.getenv("REDIS_TTL_DAYS", 1)) * 24 * 60 * 60  # TTL для кэша пользователей
+REDIS_TTL_PREDICTION = int(
+    os.getenv("REDIS_TTL_PREDICTION", 3600)
+)  # TTL для предсказаний (в секундах)

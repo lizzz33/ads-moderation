@@ -1,0 +1,2 @@
+ALTER TABLE advertisement 
+ADD COLUMN is_closed BOOLEAN NOT NULL DEFAULT FALSE;
