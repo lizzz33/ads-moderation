@@ -1,14 +1,12 @@
-from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from app.errors import UserNotFoundError
 from app.models.users import UserModel
-from app.repositories.users import UserRepository
 
 
-@dataclass(frozen=True)
 class UserService:
-    user_repo: UserRepository = UserRepository()
+    def __init__(self):
+        self.user_repo = None
 
     async def register(self, values: Mapping[str, Any]) -> UserModel:
         return await self.user_repo.create(**values)

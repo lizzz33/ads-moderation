@@ -64,10 +64,6 @@ async def test_simple_predict_logic(db_connection, async_client):
     """Интеграционный тест логики simple_predict с созданием данных"""
 
     async def create_test_seller_and_ad(conn):
-        from app.main import app
-
-        print(f"app.state.pg_pool: {app.state.pg_pool}")
-
         seller_id = await conn.fetchval(
             """
             INSERT INTO sellers (username, email, password, is_verified) 

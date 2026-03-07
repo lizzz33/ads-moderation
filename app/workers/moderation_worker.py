@@ -132,7 +132,7 @@ async def main():
                 except Exception as e:
                     if retry < MAX_RETRIES - 1:
                         event["retry_count"] = retry + 1
-                        await asyncio.sleep(RETRY_DELAY_SECONDS)
+                        await asyncio.sleep(RETRY_DELAY_SECONDS * (2**retry))
                         await producer.send_json(TOPIC, event)
                         logger.info(f"Повтор {retry + 2} для {item_id}")
                     else:

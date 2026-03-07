@@ -7,3 +7,14 @@ class UserModel(BaseModel):
     password: str
     email: str
     is_active: bool = True
+
+
+class CreateUserInDto(BaseModel):
+    name: str
+    password: str
+    email: str
+
+
+class LoginUserInDto(BaseModel):
+    login: str
+    password: str

@@ -1,54 +1,41 @@
 from typing import Sequence
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 
 from app.errors import UserNotFoundError
-from app.models.users import UserModel
+from app.models.users import CreateUserInDto, LoginUserInDto, UserModel
+from app.repositories.users import UserRepository
 from app.services.users import UserService
 
-
-class CreateUserInDto(BaseModel):
-    name: str
-    password: str
-    email: str
-
-
-class LoginUserInDto(BaseModel):
-    login: str
-    password: str
-
-
-router = APIRouter()
 root_router = APIRouter()
+user_router = APIRouter(prefix="/users")
 
-user_service = UserService()
+
+def get_user_service(request: Request) -> UserService:
+    """Создание сервиса с репозиторием для каждого запроса"""
+    user_repo = UserRepository(request=request)
+    service = UserService()
+    service.user_repo = user_repo
+    return service
 
 
-@router.get("/", status_code=status.HTTP_200_OK)
-async def get_many() -> Sequence[UserModel]:
+@user_router.get("/", status_code=status.HTTP_200_OK)
+async def get_many(request: Request) -> Sequence[UserModel]:
+    user_service = get_user_service(request)
     return await user_service.get_many()
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
-async def register(data: CreateUserInDto) -> UserModel:
+@user_router.post("/", status_code=status.HTTP_201_CREATED)
+async def register(data: CreateUserInDto, request: Request) -> UserModel:
+    user_service = get_user_service(request)
     return await user_service.register(dict(data))
 
 
-@router.get("/{raw_user_id}")
-async def get(raw_user_id: int) -> UserModel:
-    try:
-        return await user_service.get(raw_user_id)
-    except UserNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Пользователь {raw_user_id} не найден",
-        )
-
-
-@router.get("/current/")
+@user_router.get("/current")
 async def get_current(request: Request) -> UserModel:
     raw_user_id = request.cookies.get("x-user-id")
+    user_service = get_user_service(request)
 
     try:
         return await user_service.get(int(raw_user_id))
@@ -59,9 +46,22 @@ async def get_current(request: Request) -> UserModel:
         )
 
 
-@router.patch("/deactivate/{raw_user_id}")
+@user_router.get("/{raw_user_id}")
+async def get(raw_user_id: int, request: Request) -> UserModel:
+    user_service = get_user_service(request)
+    try:
+        return await user_service.get(raw_user_id)
+    except UserNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Пользователь {raw_user_id} не найден",
+        )
+
+
+@user_router.patch("/deactivate/{raw_user_id}")
 async def deactivate(raw_user_id: int, request: Request) -> UserModel:
     raw_user_id = request.cookies.get("x-user-id")
+    user_service = get_user_service(request)
 
     if not raw_user_id:
         raise HTTPException(
@@ -72,9 +72,10 @@ async def deactivate(raw_user_id: int, request: Request) -> UserModel:
     return await user_service.deactivate(int(raw_user_id))
 
 
-@router.delete("/{raw_user_id}")
+@user_router.delete("/{raw_user_id}")
 async def delete(raw_user_id: int, request: Request) -> UserModel:
     current_user_id = request.cookies.get("x-user-id")
+    user_service = get_user_service(request)
 
     if not current_user_id:
         raise HTTPException(
@@ -92,19 +93,15 @@ async def delete(raw_user_id: int, request: Request) -> UserModel:
 
 
 @root_router.post("/login")
-async def login(
-    dto: LoginUserInDto,
-    response: Response,
-) -> UserModel:
+async def login(dto: LoginUserInDto, request: Request) -> UserModel:
+    user_service = get_user_service(request)
     try:
         user = await user_service.login(dto.login, dto.password)
+        response = JSONResponse(content=user.model_dump())
+        response.set_cookie(key="x-user-id", value=str(user.id))
 
-        response.set_cookie(
-            key="x-user-id",
-            value=user.id,
-        )
+        return response
 
-        return user
     except UserNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

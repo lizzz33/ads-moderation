@@ -18,8 +18,7 @@ from app.routers.moderation import (
     predict_router,
     simple_predict_router,
 )
-from app.routers.users import root_router
-from app.routers.users import router as user_router
+from app.routers.users import root_router, user_router
 
 load_dotenv()
 
@@ -49,7 +48,7 @@ async def root():
     return {"message": "Hello World"}
 
 
-app.include_router(user_router, prefix="/users")
+app.include_router(user_router)
 app.include_router(predict_router)
 app.include_router(simple_predict_router)
 app.include_router(root_router)

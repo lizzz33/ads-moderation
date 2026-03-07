@@ -55,22 +55,18 @@ def mock_kafka():
 
 @pytest.fixture
 def mock_user_repository():
-    """Мок для UserRepository в unit тестах"""
-    from unittest.mock import AsyncMock
+    from unittest.mock import AsyncMock, patch
 
     from app.repositories.users import UserRepository
+    from app.routers import users
+    from app.services.users import UserService
 
     mock_repo = AsyncMock(spec=UserRepository)
 
-    with patch("app.routers.users.user_service") as mock_service:
-        mock_service.user_repo = mock_repo
-        mock_service.register = mock_repo.create
-        mock_service.get = mock_repo.get
-        mock_service.get_many = mock_repo.get_many
-        mock_service.deactivate = mock_repo.update
-        mock_service.delete = mock_repo.delete
-        mock_service.login = mock_repo.get_by_login_and_password
+    mock_service = UserService()
+    mock_service.user_repo = mock_repo
 
+    with patch.object(users, "get_user_service", return_value=mock_service):
         yield mock_repo
 
 
@@ -233,6 +229,7 @@ def mock_request():
     request.app = Mock()
     request.app.state = Mock()
     request.app.state.model = Mock()
+    request.app.state.pg_pool = MockPool(db_connection)
     request.app.state.redis_storage = AsyncMock()
     request.app.state.kafka_producer = AsyncMock()
     return request

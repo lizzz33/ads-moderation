@@ -8,7 +8,7 @@ services:
     ports:
       - "6432:5432"
     volumes:
-      # - postgres_data:/var/lib/postgresql/data
+     - postgres_data:/var/lib/postgresql/data
       - ./app/db/migrations/V001__initial.sql:/docker-entrypoint-initdb.d/V001__initial.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d moderation"]
@@ -51,11 +51,16 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - /path/to/local/dаta:/root/redis
-      - /path/to/local/redis.conf:/usr/local/etc/redis/redis.conf
+      - redis_data:/data
     environment:
       - REDIS_PORT=6379
       - REDIS_DATABASES=1
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   console:
     image: redpandadata/console:latest
@@ -116,4 +121,6 @@ volumes:
   postgres_data:
     driver: local
   redpanda_data:
+    driver: local
+  redis_data:
     driver: local
