@@ -6,6 +6,7 @@ import asyncpg
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from prometheus_fastapi_instrumentator import Instrumentator, metrics
 
 from app.clients.kafka import KafkaProducer
 from app.clients.settings import KAFKA_BOOTSTRAP, PG_DSN
@@ -19,6 +20,7 @@ from app.routers.moderation import (
     simple_predict_router,
 )
 from app.routers.users import root_router, user_router
+from observability.middleware import ErrorMetricsMiddleware
 
 load_dotenv()
 
@@ -41,6 +43,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, title="Сервис модерации объявлений")
+
+instrumentator = Instrumentator(
+    should_group_status_codes=True,
+    should_ignore_untemplated=True,
+    should_respect_env_var=False,
+    excluded_handlers=[],
+)
+
+instrumentator.add(metrics.request_size())
+instrumentator.add(metrics.response_size())
+instrumentator.add(metrics.latency(buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)))
+
+instrumentator.instrument(app).expose(app, endpoint="/metrics", include_in_schema=True)
+
+app.add_middleware(ErrorMetricsMiddleware)
 
 
 @app.get("/")

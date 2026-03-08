@@ -5,6 +5,8 @@ from typing import Any, Mapping, Optional
 import asyncpg
 from fastapi import HTTPException, Request
 
+from observability.metrics import track_db_query
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,6 +16,7 @@ class ModerationRepository:
 
     request: Request
 
+    @track_db_query("insert")
     async def create_task(self, item_id: int) -> int:
         """Создание задачи модерации"""
         query = """
@@ -33,6 +36,7 @@ class ModerationRepository:
             logger.error(f"Неожиданная ошибка при создании задачи: {e}")
             raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
+    @track_db_query("update")
     async def mark_task_failed(self, task_id: int, error: str) -> None:
         """Отметить задачу как ошибочную"""
         query = """
@@ -52,6 +56,7 @@ class ModerationRepository:
             logger.error(f"Неожиданная ошибка при обновлении задачи {task_id}: {e}")
             raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
+    @track_db_query("select")
     async def get_task_result(self, task_id: int) -> Optional[Mapping[str, Any]]:
         """Получение результата задачи по ID"""
         query = """

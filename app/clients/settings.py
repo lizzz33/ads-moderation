@@ -25,7 +25,9 @@ RETRY_DELAY_SECONDS = int(os.getenv("RETRY_DELAY_SECONDS", "5"))
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_DB = int(os.getenv("REDIS_DB", 0))
-REDIS_TTL = int(os.getenv("REDIS_TTL_DAYS", 1)) * 24 * 60 * 60  # TTL для кэша пользователей
-REDIS_TTL_PREDICTION = int(
-    os.getenv("REDIS_TTL_PREDICTION", 3600)
-)  # TTL для предсказаний (в секундах)
+# TTL для кэша пользователей: 1 день
+# данные меняются редко, при обновлении кэш сбрасывается
+REDIS_TTL = int(os.getenv("REDIS_TTL_DAYS", 1)) * 24 * 60 * 60
+# TTL для предсказаний: 1 час
+# модель может обновиться, объявления могут закрыть
+REDIS_TTL_PREDICTION = int(os.getenv("REDIS_TTL_PREDICTION", 3600))

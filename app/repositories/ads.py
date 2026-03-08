@@ -5,6 +5,8 @@ from typing import Any, Mapping, Optional
 import asyncpg
 from fastapi import HTTPException, Request
 
+from observability.metrics import track_db_query
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,6 +16,7 @@ class AdsRepository:
 
     request: Request
 
+    @track_db_query("select")
     async def get_ad_for_moderation(self, item_id: int) -> Optional[Mapping[str, Any]]:
         """Получение объявления для модерации"""
         query = """
@@ -42,6 +45,7 @@ class AdsRepository:
             logger.error(f"Ошибка БД в get_ad_for_moderation для item_id={item_id}: {e}")
             raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
 
+    @track_db_query("select")
     async def get_ad_id(self, item_id: int) -> Optional[int]:
         """Получение ID объявления (проверка существования)"""
         query = "SELECT item_id FROM advertisement WHERE item_id = $1 AND is_closed = FALSE"
@@ -54,6 +58,7 @@ class AdsRepository:
             logger.error(f"Ошибка БД в get_ad_id для item_id={item_id}: {e}")
             raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
 
+    @track_db_query("select")
     async def get_ad_by_id(self, item_id: int) -> Optional[Mapping[str, Any]]:
         """Получение объявления по ID (включая закрытые) для проверки статуса"""
         query = """
@@ -81,6 +86,7 @@ class AdsRepository:
             logger.error(f"Ошибка БД в get_ad_by_id для item_id={item_id}: {e}")
             raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
 
+    @track_db_query("update")
     async def close_ad(self, item_id: int) -> bool:
         """
         Закрытие объявления:

@@ -1,13 +1,22 @@
 import logging
+import time
 
 import numpy as np
 from fastapi import HTTPException
+
+from observability.metrics import (
+    MODEL_PREDICTION_PROBABILITY,
+    PREDICTION_DURATION,
+    PREDICTION_ERRORS_TOTAL,
+    PREDICTIONS_TOTAL,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def check_model(model):
     if model is None:
+        PREDICTION_ERRORS_TOTAL.labels(error_type="model_unavailable").inc()
         logger.error("Модель не загружена")
         raise HTTPException(status_code=503, detail="Модель не загружена")
 
@@ -27,9 +36,21 @@ def prepare_features(row):
 
 
 def get_prediction(model, features):
+    """Получение предсказания от модели с метриками"""
     try:
+        start = time.time()
         proba = model.predict(features)[0]
+        duration = time.time() - start
+
+        PREDICTION_DURATION.observe(duration)
+        MODEL_PREDICTION_PROBABILITY.observe(proba)
+
+        result = "violation" if proba >= 0.5 else "no_violation"
+        PREDICTIONS_TOTAL.labels(result=result).inc()
+
         return proba
+
     except Exception as e:
         logger.error(f"Ошибка предсказания: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка при обработке запроса")
+        PREDICTION_ERRORS_TOTAL.labels(error_type="prediction_error").inc()
+        raise HTTPException(status_code=500, detail="Ошибка при получении предсказания")

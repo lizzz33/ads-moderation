@@ -2,13 +2,14 @@ import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from json import dumps, loads
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 import asyncpg
 from fastapi import HTTPException, Request
 
 from app.errors import UserNotFoundError
 from app.models.users import UserModel
+from observability.metrics import track_db_query
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class UserPostgresStorage:
 
     request: Request
 
+    @track_db_query("insert")
     async def create(self, name: str, password: str, email: str) -> Mapping[str, Any]:
         """Создание нового пользователя"""
         query = """
@@ -38,6 +40,7 @@ class UserPostgresStorage:
             logger.error(f"Неожиданная ошибка при создании пользователя: {e}")
             raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
+    @track_db_query("delete")
     async def delete(self, id: int) -> Mapping[str, Any]:
         """Удаление пользователя по ID"""
         query = """
@@ -61,6 +64,7 @@ class UserPostgresStorage:
             logger.error(f"Неожиданная ошибка при удалении пользователя: {e}")
             raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
+    @track_db_query("select")
     async def select(self, id: int) -> Mapping[str, Any]:
         """Получение пользователя по ID"""
         query = """
@@ -85,6 +89,7 @@ class UserPostgresStorage:
             logger.error(f"Неожиданная ошибка при получении пользователя: {e}")
             raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
+    @track_db_query("select")
     async def select_by_login_and_password(self, login: str, password: str) -> Mapping[str, Any]:
         """Получение пользователя по логину и паролю"""
         query = """
@@ -111,6 +116,7 @@ class UserPostgresStorage:
             logger.error(f"Неожиданная ошибка при поиске пользователя: {e}")
             raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
+    @track_db_query("select")
     async def select_many(self) -> Sequence[Mapping[str, Any]]:
         """Получение всех пользователей"""
         query = """
@@ -129,6 +135,7 @@ class UserPostgresStorage:
             logger.error(f"Неожиданная ошибка при получении списка пользователей: {e}")
             raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
+    @track_db_query("update")
     async def update(self, id: int, **updates: Any) -> Mapping[str, Any]:
         """Обновление данных пользователя"""
         keys, args = [], []
@@ -166,42 +173,61 @@ class UserPostgresStorage:
 class UserRedisStorage:
     """Репозиторий для работы с пользователями в Redis"""
 
-    request: Request
+    request: Optional[Request] = None
     _TTL: timedelta = timedelta(days=1)
+
+    async def _get_redis(self):
+        """Получение redis клиента из app.state или из request"""
+        if self.request and hasattr(self.request.app.state, "redis_storage"):
+            return self.request.app.state.redis_storage
+
+        from app.clients.redis import get_redis_connection
+
+        return await get_redis_connection().__aenter__()
 
     async def set(self, row_id: int, row: Mapping[str, Any]) -> None:
         """Сохранение пользователя в кэш"""
+        redis = await self._get_redis()
         try:
-            async with self.request.app.state.redis_storage as redis:
-                pipeline = redis.pipeline()
-                pipeline.set(
-                    name=str(row_id),
-                    value=dumps(row),
-                )
-                pipeline.expire(str(row_id), self._TTL)
-                await pipeline.execute()
+            pipeline = redis.pipeline()
+            pipeline.set(
+                name=str(row_id),
+                value=dumps(row),
+            )
+            pipeline.expire(str(row_id), self._TTL)
+            await pipeline.execute()
+
         except Exception as e:
             logger.error(f"Ошибка Redis при сохранении пользователя {row_id}: {e}")
+        finally:
+            if not self.request:
+                await redis.close()
 
     async def get(self, row_id: int) -> Mapping[str, Any] | None:
         """Получение пользователя из кэша"""
+        redis = await self._get_redis()
         try:
-            async with self.request.app.state.redis_storage as redis:
-                row = await redis.get(str(row_id))
-                if row:
-                    return loads(row)
-                return None
+            row = await redis.get(str(row_id))
+            if row:
+                return loads(row)
+            return None
         except Exception as e:
             logger.error(f"Ошибка Redis при получении пользователя {row_id}: {e}")
             return None
+        finally:
+            if not self.request:
+                await redis.close()
 
     async def delete(self, row_id: int) -> None:
         """Удаление пользователя из кэша"""
+        redis = await self._get_redis()
         try:
-            async with self.request.app.state.redis_storage as redis:
-                await redis.delete(str(row_id))
+            await redis.delete(str(row_id))
         except Exception as e:
             logger.error(f"Ошибка Redis при удалении пользователя {row_id}: {e}")
+        finally:
+            if not self.request:
+                await redis.close()
 
 
 @dataclass
