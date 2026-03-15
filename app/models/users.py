@@ -4,15 +4,15 @@ from pydantic import BaseModel
 class UserModel(BaseModel):
     id: int
     name: str
+    login: str
     password: str
-    email: str
-    is_active: bool = True
+    is_blocked: bool = True
 
 
 class CreateUserInDto(BaseModel):
     name: str
+    login: str
     password: str
-    email: str
 
 
 class LoginUserInDto(BaseModel):

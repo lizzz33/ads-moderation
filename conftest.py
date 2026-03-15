@@ -13,6 +13,11 @@ from starlette.requests import Request
 from app.clients.postgres import get_pg_connection
 from app.main import app
 from app.model import load_or_train_model
+from app.models.token import TokenData
+from app.models.users import UserModel
+from app.services.auth import hash_password
+
+PASSWORD = "qwerty"
 
 
 @pytest.fixture
@@ -301,18 +306,21 @@ async def db_connection():
 @pytest.fixture
 async def test_user(db_connection):
     """Создание тестового пользователя"""
+    hashed_password = hash_password(PASSWORD)
+
     user_id = await db_connection.fetchval(
         """
-        INSERT INTO account (name, password, email, is_active)
+        INSERT INTO account (name, login, password, is_blocked)
         VALUES ($1, $2, $3, $4)
         RETURNING id
         """,
         "Иванов И.И.",
-        "hash",
         "test@example.com",
-        True,
+        hashed_password,
+        False,
     )
-    return {"id": user_id, "name": "Иванов И.И.", "email": "test@example.com"}
+    await db_connection.execute("COMMIT")
+    return {"id": user_id, "name": "Иванов И.И.", "login": "test@example.com"}
 
 
 @pytest.fixture
@@ -326,7 +334,7 @@ async def test_seller(db_connection):
         """,
         "test_seller",
         "seller@test.com",
-        "hash",
+        PASSWORD,
         True,
     )
     return seller_id
@@ -364,3 +372,26 @@ async def test_task(db_connection, test_ad):
         test_ad,
     )
     return task_id
+
+
+@pytest.fixture
+async def auth_token(async_client, mock_user_repository):
+    """Получение токена для тестов"""
+    mock_user_repository.get_by_login_and_password.return_value = UserModel(
+        id=1,
+        name="Test User",
+        login="test@example.com",
+        password=PASSWORD,
+        is_blocked=False,
+    )
+
+    response = await async_client.post(
+        "/login", json={"login": "test@example.com", "password": PASSWORD}
+    )
+    return response.json()["access_token"]
+
+
+@pytest.fixture
+def mock_current_user():
+    """Мок текущего пользователя для тестов"""
+    return TokenData(user_id=1, login="test@example.com")

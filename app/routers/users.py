@@ -1,11 +1,13 @@
 from typing import Sequence
 
-from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from app.dependencies import get_current_user
 from app.errors import UserNotFoundError
+from app.models.token import Token, TokenData
 from app.models.users import CreateUserInDto, LoginUserInDto, UserModel
 from app.repositories.users import UserRepository
+from app.services.auth import auth_service
 from app.services.users import UserService
 
 root_router = APIRouter()
@@ -20,90 +22,124 @@ def get_user_service(request: Request) -> UserService:
     return service
 
 
-@user_router.get("/", status_code=status.HTTP_200_OK)
-async def get_many(request: Request) -> Sequence[UserModel]:
-    user_service = get_user_service(request)
-    return await user_service.get_many()
-
-
 @user_router.post("/", status_code=status.HTTP_201_CREATED)
 async def register(data: CreateUserInDto, request: Request) -> UserModel:
+    """Регистрация нового пользователя (доступно всем)"""
     user_service = get_user_service(request)
     return await user_service.register(dict(data))
 
 
+@root_router.post("/login", response_model=Token)
+async def login(dto: LoginUserInDto, request: Request):
+    """Авторизация пользователя, возвращает JWT токен"""
+    user_service = get_user_service(request)
+
+    try:
+        user = await user_service.get_by_login_and_password(dto.login, dto.password)
+
+        access_token = auth_service.create_access_token(
+            data={"sub": str(user.id), "login": user.login}
+        )
+
+        return Token(access_token=access_token, token_type="bearer")
+
+    except UserNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid login or password",
+        )
+
+
+@user_router.get("/", status_code=status.HTTP_200_OK)
+async def get_many(
+    request: Request,
+    current_user: TokenData = Depends(get_current_user),
+) -> Sequence[UserModel]:
+    user_service = get_user_service(request)
+    return await user_service.get_many()
+
+
 @user_router.get("/current")
-async def get_current(request: Request) -> UserModel:
-    raw_user_id = request.cookies.get("x-user-id")
+async def get_current(
+    request: Request,
+    current_user: TokenData = Depends(get_current_user),
+) -> UserModel:
     user_service = get_user_service(request)
 
     try:
-        return await user_service.get(int(raw_user_id))
+        return await user_service.get(current_user.user_id)
     except UserNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Пользователь {raw_user_id} не найден",
+            detail=f"Пользователь {current_user.user_id} не найден",
         )
 
 
-@user_router.get("/{raw_user_id}")
-async def get(raw_user_id: int, request: Request) -> UserModel:
+@user_router.get("/{user_id}")
+async def get(
+    user_id: int,
+    request: Request,
+    current_user: TokenData = Depends(get_current_user),
+) -> UserModel:
     user_service = get_user_service(request)
     try:
-        return await user_service.get(raw_user_id)
+        return await user_service.get(user_id)
     except UserNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Пользователь {raw_user_id} не найден",
+            detail=f"Пользователь {user_id} не найден",
         )
 
 
-@user_router.patch("/deactivate/{raw_user_id}")
-async def deactivate(raw_user_id: int, request: Request) -> UserModel:
-    raw_user_id = request.cookies.get("x-user-id")
-    user_service = get_user_service(request)
-
-    if not raw_user_id:
+@user_router.patch("/deactivate/{user_id}")
+async def deactivate(
+    user_id: int,
+    request: Request,
+    current_user: TokenData = Depends(get_current_user),
+) -> UserModel:
+    if current_user.user_id != user_id:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only deactivate your own account",
         )
 
-    return await user_service.deactivate(int(raw_user_id))
-
-
-@user_router.delete("/{raw_user_id}")
-async def delete(raw_user_id: int, request: Request) -> UserModel:
-    current_user_id = request.cookies.get("x-user-id")
     user_service = get_user_service(request)
+    return await user_service.deactivate(user_id)
 
-    if not current_user_id:
+
+@user_router.patch("/block/{user_id}")
+async def block_user(
+    user_id: int,
+    request: Request,
+    current_user: TokenData = Depends(get_current_user),
+) -> UserModel:
+    if current_user.user_id != user_id:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only block your own account",
         )
 
+    user_service = get_user_service(request)
+    return await user_service.block(user_id)
+
+
+@user_router.delete("/{user_id}")
+async def delete(
+    user_id: int,
+    request: Request,
+    current_user: TokenData = Depends(get_current_user),
+) -> UserModel:
+    if current_user.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own account",
+        )
+
+    user_service = get_user_service(request)
     try:
-        return await user_service.delete(int(raw_user_id))
+        return await user_service.delete(user_id)
     except UserNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Пользователь {raw_user_id} не найден",
-        )
-
-
-@root_router.post("/login")
-async def login(dto: LoginUserInDto, request: Request) -> UserModel:
-    user_service = get_user_service(request)
-    try:
-        user = await user_service.login(dto.login, dto.password)
-        response = JSONResponse(content=user.model_dump())
-        response.set_cookie(key="x-user-id", value=str(user.id))
-
-        return response
-
-    except UserNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Логин или пароль не верны",
+            detail=f"Пользователь {user_id} не найден",
         )

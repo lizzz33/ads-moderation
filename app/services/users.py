@@ -29,3 +29,9 @@ class UserService:
 
     async def get_many(self) -> Sequence[UserModel]:
         return await self.user_repo.get_many()
+
+    async def block(self, user_id: int) -> UserModel:
+        return await self.user_repo.block(user_id)
+
+    async def get_by_login_and_password(self, login: str, password: str) -> UserModel:
+        return await self.user_repo.get_by_login_and_password(login, password)

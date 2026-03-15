@@ -31,3 +31,7 @@ REDIS_TTL = int(os.getenv("REDIS_TTL_DAYS", 1)) * 24 * 60 * 60
 # TTL для предсказаний: 1 час
 # модель может обновиться, объявления могут закрыть
 REDIS_TTL_PREDICTION = int(os.getenv("REDIS_TTL_PREDICTION", 3600))
+
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))

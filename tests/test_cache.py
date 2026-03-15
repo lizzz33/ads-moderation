@@ -4,6 +4,10 @@ import pytest
 
 from app.models.users import UserModel
 from app.repositories.users import UserPostgresStorage, UserRedisStorage, UserRepository
+from app.services.auth import hash_password
+
+PASSWORD = "qwerty"
+hashed_password = hash_password(PASSWORD)
 
 
 @pytest.mark.unit
@@ -17,9 +21,9 @@ async def test_user_repository_get_caches_result(mock_request):
     mock_postgres.select.return_value = {
         "id": 1,
         "name": "Test",
-        "password": "hash",
-        "email": "test@test.com",
-        "is_active": True,
+        "password": hashed_password,
+        "login": "test@test.com",
+        "is_blocked": False,
     }
 
     repo = UserRepository(request=mock_request)
@@ -46,9 +50,9 @@ async def test_user_repository_get_returns_cached(mock_request):
     cached_data = {
         "id": 1,
         "name": "Test",
-        "password": "hash",
-        "email": "test@test.com",
-        "is_active": True,
+        "password": hashed_password,
+        "login": "test@test.com",
+        "is_blocked": False,
     }
     mock_redis.get.return_value = cached_data
 
@@ -74,9 +78,9 @@ async def test_user_repository_update_deletes_cache(mock_request):
     mock_postgres.update.return_value = {
         "id": 1,
         "name": "Updated",
-        "password": "hash",
-        "email": "test@test.com",
-        "is_active": True,
+        "password": hashed_password,
+        "login": "test@test.com",
+        "is_blocked": False,
     }
 
     repo = UserRepository(request=mock_request)
@@ -106,14 +110,14 @@ async def test_user_postgres_storage_create(mock_request):
     mock_conn.fetchrow.return_value = {
         "id": 1,
         "name": "Test",
-        "password": "hash",
+        "password": hashed_password,
         "email": "test@test.com",
         "is_active": True,
     }
     mock_request.app.state.pg_pool = mock_pool
 
     storage = UserPostgresStorage(request=mock_request)
-    result = await storage.create("Test", "hash", "test@test.com")
+    result = await storage.create("Test", hashed_password, "test@test.com")
 
     assert result["id"] == 1
     mock_conn.fetchrow.assert_called_once()

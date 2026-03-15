@@ -1,7 +1,8 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from app.dependencies import get_current_user
 from app.models.ads import (
     AdRequest,
     AdResponse,
@@ -11,6 +12,7 @@ from app.models.ads import (
     CloseAdResponse,
     ModerationResultResponse,
 )
+from app.models.token import TokenData
 from app.repositories.ads import AdsRepository
 from app.repositories.moderation import ModerationRepository
 from app.routers.utils import (
@@ -31,8 +33,12 @@ logger = logging.getLogger(__name__)
 
 
 @predict_router.post("", response_model=AdResponse)
-async def predict(ad: AdRequest, request: Request):
-    logger.info(f"Запрос: {ad}")
+async def predict(
+    ad: AdRequest,
+    request: Request,
+    current_user: TokenData = Depends(get_current_user),
+):
+    logger.info(f"Запрос от пользователя {current_user.login}: {ad}")
 
     model = request.app.state.model
     check_model(model)
@@ -46,8 +52,12 @@ async def predict(ad: AdRequest, request: Request):
 
 
 @simple_predict_router.post("", response_model=AdResponse)
-async def simple_predict(ad: AdSimpleRequest, request: Request):
-    logger.info(f"Запрос simple_predict для item_id: {ad.item_id}")
+async def simple_predict(
+    ad: AdSimpleRequest,
+    request: Request,
+    current_user: TokenData = Depends(get_current_user),
+):
+    logger.info(f"Запрос simple_predict от {current_user.login} для item_id: {ad.item_id}")
 
     redis_storage = request.app.state.redis_storage
     cache_key = f"prediction:{ad.item_id}"
@@ -83,8 +93,12 @@ async def simple_predict(ad: AdSimpleRequest, request: Request):
 
 
 @async_predict_router.post("", response_model=AsyncPredictResponse)
-async def async_predict(ad: AdSimpleRequest, request: Request):
-    logger.info(f"Запрос async_predict для item_id: {ad.item_id}")
+async def async_predict(
+    ad: AdSimpleRequest,
+    request: Request,
+    current_user: TokenData = Depends(get_current_user),
+):
+    logger.info(f"Запрос async_predict от {current_user.login} для item_id: {ad.item_id}")
 
     kafka_producer = request.app.state.kafka_producer
     check_kafka(kafka_producer)
@@ -131,8 +145,12 @@ async def async_predict(ad: AdSimpleRequest, request: Request):
 
 
 @moderation_result_router.get("/{task_id}", response_model=ModerationResultResponse)
-async def get_moderation_result(task_id: int, request: Request):
-    logger.info(f"Запрос статуса: task_id={task_id}")
+async def get_moderation_result(
+    task_id: int,
+    request: Request,
+    current_user: TokenData = Depends(get_current_user),
+):
+    logger.info(f"Запрос статуса от {current_user.login} для task_id={task_id}")
 
     redis_storage = request.app.state.redis_storage
     cache_key = f"moderation_result:{task_id}"
@@ -176,8 +194,14 @@ async def get_moderation_result(task_id: int, request: Request):
 
 
 @close_ad_router.post("", response_model=CloseAdResponse)
-async def close_ad(request: Request, ad_request: CloseAdRequest):
-    logger.info(f"Запрос на закрытие объявления item_id: {ad_request.item_id}")
+async def close_ad(
+    request: Request,
+    ad_request: CloseAdRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    logger.info(
+        f"Запрос на закрытие объявления от {current_user.login} для item_id: {ad_request.item_id}"
+    )
 
     redis_storage = request.app.state.redis_storage
     ads_repo = AdsRepository(request=request)

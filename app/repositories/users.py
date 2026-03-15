@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 
 from app.errors import UserNotFoundError
 from app.models.users import UserModel
+from app.services.auth import hash_password
 from observability.metrics import track_db_query
 
 logger = logging.getLogger(__name__)
@@ -21,20 +22,21 @@ class UserPostgresStorage:
     request: Request
 
     @track_db_query("insert")
-    async def create(self, name: str, password: str, email: str) -> Mapping[str, Any]:
+    async def create(self, name: str, login: str, password: str) -> Mapping[str, Any]:
         """Создание нового пользователя"""
         query = """
-            INSERT INTO account (name, password, email)
+            INSERT INTO account (name, login, password)
             VALUES ($1, $2, $3)
             RETURNING *
         """
+        hashed_password = hash_password(password)
 
         try:
             async with self.request.app.state.pg_pool.acquire() as conn:
-                row = await conn.fetchrow(query, name, password, email)
+                row = await conn.fetchrow(query, name, login, hashed_password)
                 return dict(row)
         except asyncpg.PostgresError as e:
-            logger.error(f"Ошибка БД при создании пользователя {email}: {e}")
+            logger.error(f"Ошибка БД при создании пользователя {login}: {e}")
             raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
         except Exception as e:
             logger.error(f"Неожиданная ошибка при создании пользователя: {e}")
@@ -96,14 +98,15 @@ class UserPostgresStorage:
             SELECT *
             FROM account
             WHERE
-                email = $1::TEXT
+                login = $1::TEXT
                 AND password = $2::TEXT
             LIMIT 1
         """
+        hashed_password = hash_password(password)
 
         try:
             async with self.request.app.state.pg_pool.acquire() as conn:
-                row = await conn.fetchrow(query, login, password)
+                row = await conn.fetchrow(query, login, hashed_password)
                 if row:
                     return dict(row)
                 raise UserNotFoundError()
@@ -166,6 +169,35 @@ class UserPostgresStorage:
             raise
         except Exception as e:
             logger.error(f"Неожиданная ошибка при обновлении пользователя: {e}")
+            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
+    @track_db_query("update")
+    async def block(self, id: int) -> Mapping[str, Any]:
+        """Блокировка пользователя"""
+        query = """
+            UPDATE account
+            SET is_blocked = TRUE, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1::INTEGER AND is_blocked = FALSE
+            RETURNING *
+        """
+
+        try:
+            async with self.request.app.state.pg_pool.acquire() as conn:
+                row = await conn.fetchrow(query, id)
+                if row:
+                    return dict(row)
+
+                user = await self.select(id)
+                if user:
+                    return user
+                raise UserNotFoundError()
+        except asyncpg.PostgresError as e:
+            logger.error(f"Ошибка БД при блокировке пользователя {id}: {e}")
+            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+        except UserNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка при блокировке пользователя: {e}")
             raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
 
@@ -240,8 +272,8 @@ class UserRepository:
         self.postgres = UserPostgresStorage(request=self.request)
         self.redis = UserRedisStorage(request=self.request)
 
-    async def create(self, name: str, password: str, email: str) -> UserModel:
-        raw_user = await self.postgres.create(name, password, email)
+    async def create(self, name: str, login: str, password: str) -> UserModel:
+        raw_user = await self.postgres.create(name, login, password)
         return UserModel(**raw_user)
 
     async def get_by_login_and_password(self, login: str, password: str) -> UserModel:
@@ -268,3 +300,8 @@ class UserRepository:
     async def get_many(self) -> Sequence[UserModel]:
         raw_users = await self.postgres.select_many()
         return [UserModel(**raw_user) for raw_user in raw_users]
+
+    async def block(self, user_id: int) -> UserModel:
+        raw_user = await self.postgres.block(user_id)
+        await self.redis.delete(user_id)
+        return UserModel(**raw_user)

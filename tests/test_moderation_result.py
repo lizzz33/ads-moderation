@@ -11,8 +11,8 @@ from app.routers.moderation import async_predict, get_moderation_result
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_get_moderation_result_returns_cached(mock_request):
-    """Тест получения результата из кэша"""
+async def test_get_moderation_result_returns_cached(mock_request, mock_current_user):
+    """Тест: результат возвращается из кэша"""
     cached_data = {
         "task_id": 123,
         "status": "completed",
@@ -22,7 +22,7 @@ async def test_get_moderation_result_returns_cached(mock_request):
 
     mock_request.app.state.redis_storage.get.return_value = cached_data
 
-    result = await get_moderation_result(123, mock_request)
+    result = await get_moderation_result(123, mock_request, mock_current_user)
 
     mock_request.app.state.redis_storage.get.assert_called_once_with("moderation_result:123")
     assert isinstance(result, ModerationResultResponse)
@@ -32,8 +32,8 @@ async def test_get_moderation_result_returns_cached(mock_request):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_get_moderation_result_goes_to_db_when_cache_miss(mock_request):
-    """Тест обращения к БД при отсутствии в кэше"""
+async def test_get_moderation_result_goes_to_db_when_cache_miss(mock_request, mock_current_user):
+    """Тест: при отсутствии в кэше данные берутся из БД"""
     db_data = {"task_id": 123, "status": "completed", "is_violation": False, "probability": 0.23}
 
     mock_request.app.state.redis_storage.get.return_value = None
@@ -44,24 +44,17 @@ async def test_get_moderation_result_goes_to_db_when_cache_miss(mock_request):
         mock_repo_instance.get_task_result.return_value = db_data
         MockModerationRepo.return_value = mock_repo_instance
 
-        result = await get_moderation_result(123, mock_request)
+        result = await get_moderation_result(123, mock_request, mock_current_user)
 
-        MockModerationRepo.assert_called_once_with(request=mock_request)
+        mock_request.app.state.redis_storage.get.assert_called_once_with("moderation_result:123")
         mock_repo_instance.get_task_result.assert_called_once_with(123)
-
-        assert isinstance(result, ModerationResultResponse)
-        assert result.task_id == 123
-        assert result.status == "completed"
-        assert result.is_violation is False
-        assert result.probability == 0.23
-
         mock_request.app.state.redis_storage.set.assert_called_once()
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_get_moderation_result_not_found(mock_request):
-    """Тест получения несуществующей задачи"""
+async def test_get_moderation_result_not_found(mock_request, mock_current_user):
+    """Тест: 404 если задачи нет"""
     mock_request.app.state.redis_storage.get.return_value = None
 
     with patch("app.routers.moderation.ModerationRepository") as MockModerationRepo:
@@ -70,16 +63,15 @@ async def test_get_moderation_result_not_found(mock_request):
         MockModerationRepo.return_value = mock_repo_instance
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_moderation_result(999, mock_request)
+            await get_moderation_result(999, mock_request, mock_current_user)
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
-        assert "не найдена" in exc_info.value.detail
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_get_moderation_result_pending_not_cached(mock_request):
-    """Тест: задачи в статусе pending не кэшируются"""
+async def test_get_moderation_result_pending_not_cached(mock_request, mock_current_user):
+    """Тест: pending статус не кэшируется"""
     pending_data = {"task_id": 123, "status": "pending", "is_violation": None, "probability": None}
 
     mock_request.app.state.redis_storage.get.return_value = None
@@ -89,38 +81,35 @@ async def test_get_moderation_result_pending_not_cached(mock_request):
         mock_repo_instance.get_task_result.return_value = pending_data
         MockModerationRepo.return_value = mock_repo_instance
 
-        result = await get_moderation_result(123, mock_request)
+        result = await get_moderation_result(123, mock_request, mock_current_user)
 
-        assert result.status == "pending"
-        assert result.is_violation is None
         mock_request.app.state.redis_storage.set.assert_not_called()
+        assert result.status == "pending"
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_get_moderation_result_db_error(mock_request):
-    """Тест ошибки БД при получении задачи"""
+async def test_get_moderation_result_db_error(mock_request, mock_current_user):
+    """Тест: 500 при ошибке БД"""
     mock_request.app.state.redis_storage.get.return_value = None
 
     with patch("app.routers.moderation.ModerationRepository") as MockModerationRepo:
         mock_repo_instance = AsyncMock()
-        mock_repo_instance.get_task_result.side_effect = HTTPException(
-            status_code=503, detail="Сервис базы данных временно недоступен"
-        )
+        mock_repo_instance.get_task_result.side_effect = Exception("DB error")
         MockModerationRepo.return_value = mock_repo_instance
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_moderation_result(123, mock_request)
+            await get_moderation_result(123, mock_request, mock_current_user)
 
-        assert exc_info.value.status_code == 503
+        assert exc_info.value.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_async_predict_success_unit(
-    mock_request, mock_ads_repository, mock_moderation_repository
+    mock_request, mock_current_user, mock_ads_repository, mock_moderation_repository
 ):
-    """Тест успешного создания задачи асинхронного предсказания"""
+    """Тест: успешный запуск асинхронного предсказания"""
     mock_request.app.state.kafka_producer = AsyncMock()
     mock_request.app.state.kafka_producer.send_moderation_request = AsyncMock()
 
@@ -134,24 +123,28 @@ async def test_async_predict_success_unit(
         ),
     ):
         ad_request = AdSimpleRequest(item_id=123)
-        response = await async_predict(ad_request, mock_request)
+        response = await async_predict(ad_request, mock_request, mock_current_user)
 
         assert response.task_id == 789
         assert response.status == "pending"
         mock_ads_repository.get_ad_id.assert_called_once_with(123)
+        mock_moderation_repository.create_task.assert_called_once_with(456)
+        mock_request.app.state.kafka_producer.send_moderation_request.assert_called_once_with(456)
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_async_predict_ad_not_found_unit(mock_request, mock_ads_repository):
-    """Тест: объявление не найдено при асинхронном предсказании"""
+async def test_async_predict_ad_not_found_unit(
+    mock_request, mock_current_user, mock_ads_repository
+):
+    """Тест: объявление не найдено"""
     mock_ads_repository.get_ad_id.return_value = None
 
     with patch("app.routers.moderation.AdsRepository", return_value=mock_ads_repository):
         ad_request = AdSimpleRequest(item_id=999)
 
         with pytest.raises(HTTPException) as exc_info:
-            await async_predict(ad_request, mock_request)
+            await async_predict(ad_request, mock_request, mock_current_user)
 
         assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
 

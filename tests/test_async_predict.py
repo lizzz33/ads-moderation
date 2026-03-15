@@ -12,33 +12,41 @@ import pytest
     ],
 )
 @pytest.mark.asyncio
-async def test_async_predict_validation(async_client, bad_data):
-    response = await async_client.post("/async_predict", json=bad_data)
+async def test_async_predict_validation(async_client, auth_token, bad_data):
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    response = await async_client.post("/async_predict", json=bad_data, headers=headers)
     assert response.status_code == 422
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_async_predict_not_found(async_client):
-    response = await async_client.post("/async_predict", json={"item_id": 999999})
+async def test_async_predict_not_found(async_client, auth_token):
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    response = await async_client.post("/async_predict", json={"item_id": 999999}, headers=headers)
     assert response.status_code == 404
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_async_predict_without_kafka(async_client_without_kafka, mock_ads_repository):
+async def test_async_predict_without_kafka(
+    async_client_without_kafka, mock_ads_repository, auth_token
+):
     mock_item_id = 999
     mock_ads_repository.get_ad_id.return_value = mock_item_id
+    headers = {"Authorization": f"Bearer {auth_token}"}
     response = await async_client_without_kafka.post(
-        "/async_predict", json={"item_id": mock_item_id}
+        "/async_predict", json={"item_id": mock_item_id}, headers=headers
     )
     assert response.status_code == 503
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_async_predict_creates_task(db_connection, async_client, test_ad, mock_kafka):
-    response = await async_client.post("/async_predict", json={"item_id": test_ad})
+async def test_async_predict_creates_task(db_connection, async_client, test_ad, auth_token):
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    response = await async_client.post(
+        "/async_predict", json={"item_id": test_ad}, headers=headers
+    )
     assert response.status_code == 200
     data = response.json()
     assert "task_id" in data
