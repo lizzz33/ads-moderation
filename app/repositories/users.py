@@ -217,16 +217,16 @@ class UserRedisStorage:
 
         return await get_redis_connection().__aenter__()
 
-    async def set(self, row_id: int, row: Mapping[str, Any]) -> None:
+    async def set(self, row_id: str, row: Mapping[str, Any]) -> None:
         """Сохранение пользователя в кэш"""
         redis = await self._get_redis()
         try:
             pipeline = redis.pipeline()
             pipeline.set(
-                name=str(row_id),
+                name=row_id,
                 value=dumps(row),
             )
-            pipeline.expire(str(row_id), self._TTL)
+            pipeline.expire(row_id, self._TTL)
             await pipeline.execute()
 
         except Exception as e:
@@ -235,11 +235,11 @@ class UserRedisStorage:
             if not self.request:
                 await redis.close()
 
-    async def get(self, row_id: int) -> Mapping[str, Any] | None:
+    async def get(self, row_id: str) -> Mapping[str, Any] | None:
         """Получение пользователя из кэша"""
         redis = await self._get_redis()
         try:
-            row = await redis.get(str(row_id))
+            row = await redis.get(row_id)
             if row:
                 return loads(row)
             return None
@@ -250,11 +250,11 @@ class UserRedisStorage:
             if not self.request:
                 await redis.close()
 
-    async def delete(self, row_id: int) -> None:
+    async def delete(self, row_id: str) -> None:
         """Удаление пользователя из кэша"""
         redis = await self._get_redis()
         try:
-            await redis.delete(str(row_id))
+            await redis.delete(row_id)
         except Exception as e:
             logger.error(f"Ошибка Redis при удалении пользователя {row_id}: {e}")
         finally:
@@ -281,11 +281,12 @@ class UserRepository:
         return UserModel(**raw_user)
 
     async def get(self, user_id: int) -> UserModel:
-        if raw_user := await self.redis.get(user_id):
+        cache_key = f"user:{user_id}"
+        if raw_user := await self.redis.get(cache_key):
             return UserModel(**raw_user)
 
         raw_user = await self.postgres.select(user_id)
-        await self.redis.set(user_id, raw_user)
+        await self.redis.set(cache_key, raw_user)
         return UserModel(**raw_user)
 
     async def delete(self, user_id: int) -> UserModel:
@@ -294,7 +295,7 @@ class UserRepository:
 
     async def update(self, user_id: int, **changes: Mapping[str, Any]) -> UserModel:
         raw_user = await self.postgres.update(user_id, **changes)
-        await self.redis.delete(user_id)
+        await self.redis.delete(f"user:{user_id}")
         return UserModel(**raw_user)
 
     async def get_many(self) -> Sequence[UserModel]:
@@ -303,5 +304,5 @@ class UserRepository:
 
     async def block(self, user_id: int) -> UserModel:
         raw_user = await self.postgres.block(user_id)
-        await self.redis.delete(user_id)
+        await self.redis.delete(f"user:{user_id}")
         return UserModel(**raw_user)

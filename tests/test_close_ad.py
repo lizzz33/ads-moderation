@@ -67,12 +67,6 @@ def test_close_ad_db_error_unit(app_client: TestClient, mock_ads_repository, aut
 @pytest.mark.asyncio
 async def test_delete_ad_caches_unit(mock_request):
     """Тест удаления кэшей при закрытии объявления"""
-    mock_redis = AsyncMock()
-    mock_redis.delete = AsyncMock()
-
-    mock_conn = AsyncMock()
-    mock_conn.fetch.return_value = [{"id": 1}, {"id": 2}]
-
     mock_conn = AsyncMock()
     mock_conn.fetch.return_value = [{"id": 1}, {"id": 2}]
 
@@ -87,9 +81,9 @@ async def test_delete_ad_caches_unit(mock_request):
 
     repo = AdsRepository(request=mock_request)
 
-    await repo.delete_ad_caches(123, mock_redis)
+    await repo.delete_ad_caches(123)
 
-    assert mock_redis.delete.call_count == 3
+    assert mock_request.app.state.redis_storage.delete.call_count == 3
     mock_conn.fetch.assert_called_once()
     assert mock_conn.fetch.call_args[0][1] == 123
 

@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
@@ -32,9 +33,9 @@ async def test_user_repository_get_caches_result(mock_request):
 
     result = await repo.get(1)
 
-    mock_redis.get.assert_called_once_with(1)
+    mock_redis.get.assert_called_once_with("user:1")
     mock_postgres.select.assert_called_once_with(1)
-    mock_redis.set.assert_called_once_with(1, mock_postgres.select.return_value)
+    mock_redis.set.assert_called_once_with("user:1", mock_postgres.select.return_value)
 
     assert isinstance(result, UserModel)
     assert result.id == 1
@@ -62,7 +63,7 @@ async def test_user_repository_get_returns_cached(mock_request):
 
     result = await repo.get(1)
 
-    mock_redis.get.assert_called_once_with(1)
+    mock_redis.get.assert_called_once_with("user:1")
     mock_postgres.select.assert_not_called()
     mock_redis.set.assert_not_called()
 
@@ -89,7 +90,7 @@ async def test_user_repository_update_deletes_cache(mock_request):
 
     await repo.update(1, name="Updated")
 
-    mock_redis.delete.assert_called_once_with(1)
+    mock_redis.delete.assert_called_once_with("user:1")
     mock_postgres.update.assert_called_once()
 
 
@@ -140,11 +141,11 @@ async def test_redis_set_get_simple(mock_request):
     mock_request.app.state.redis_storage = mock_redis_client
 
     storage = UserRedisStorage(request=mock_request)
-    await storage.set(123, {"id": 123, "name": "Test"})
+    await storage.set("user:123", {"id": 123, "name": "Test"})
 
     mock_redis_client.pipeline.assert_called_once()
-    mock_pipeline.set.assert_called_once()
-    mock_pipeline.expire.assert_called_once()
+    mock_pipeline.set.assert_called_once_with(name="user:123", value='{"id": 123, "name": "Test"}')
+    mock_pipeline.expire.assert_called_once_with("user:123", timedelta(days=1))
     mock_pipeline.execute.assert_called_once()
 
 
@@ -160,9 +161,9 @@ async def test_redis_get_found(mock_request):
     mock_request.app.state.redis_storage = mock_redis_client
 
     storage = UserRedisStorage(request=mock_request)
-    result = await storage.get(123)
+    result = await storage.get("user:123")
 
-    mock_redis_client.get.assert_called_once_with("123")
+    mock_redis_client.get.assert_called_once_with("user:123")
     assert result == {"id": 123, "name": "Test"}
 
 
@@ -178,9 +179,9 @@ async def test_redis_get_not_found(mock_request):
     mock_request.app.state.redis_storage = mock_redis_client
 
     storage = UserRedisStorage(request=mock_request)
-    result = await storage.get(999)
+    result = await storage.get("user:999")
 
-    mock_redis_client.get.assert_called_once_with("999")
+    mock_redis_client.get.assert_called_once_with("user:999")
     assert result is None
 
 
@@ -196,6 +197,6 @@ async def test_redis_delete(mock_request):
     mock_request.app.state.redis_storage = mock_redis_client
 
     storage = UserRedisStorage(request=mock_request)
-    await storage.delete(123)
+    await storage.delete("user:123")
 
-    mock_redis_client.delete.assert_called_once_with("123")
+    mock_redis_client.delete.assert_called_once_with("user:123")

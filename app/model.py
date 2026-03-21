@@ -46,11 +46,9 @@ def registration_model():
 
     client = MlflowClient()
 
-    # Берём последнюю версию модели
-    latest_versions = client.get_latest_versions("moderation-model")  # все стадии
+    latest_versions = client.get_latest_versions("moderation-model")
     latest_version = max(latest_versions, key=lambda v: int(v.version))
 
-    # Переводим её в Production
     client.transition_model_version_stage(
         name="moderation-model",
         version=latest_version.version,

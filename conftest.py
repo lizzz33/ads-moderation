@@ -6,11 +6,12 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 import pytest_asyncio
+import redis.asyncio as redis
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from starlette.requests import Request
 
-from app.clients.postgres import get_pg_connection
+from app.clients.postgres import close_db_pool
 from app.main import app
 from app.model import load_or_train_model
 from app.models.token import TokenData
@@ -109,7 +110,6 @@ def mock_ads_repository():
     }
 
     mock_repo.close_ad.return_value = True
-    mock_repo.delete_ad_caches.return_value = None
 
     with patch("app.routers.moderation.AdsRepository") as mock_ads_class:
         mock_ads_class.return_value = mock_repo
@@ -217,14 +217,17 @@ async def async_client_without_kafka(db_connection):
     app.state.redis_storage = None
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(scope="function")
 async def redis_client():
-    """Фикстура для прямого доступа к Redis в тестах"""
-    from app.clients.redis import get_redis_connection
+    """Фикстура для подключения к Redis"""
+    client = redis.Redis(host="localhost", port=6379, db=1, decode_responses=True)
 
-    async with get_redis_connection() as conn:
-        yield conn
-        await conn.flushdb()
+    try:
+        await client.ping()
+        await client.flushdb()
+        yield client
+    finally:
+        await client.aclose()
 
 
 @pytest.fixture
@@ -284,11 +287,23 @@ def some_user(
     assert deleted_response.status_code in (HTTPStatus.OK, HTTPStatus.NOT_FOUND)
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="function")
 async def db_connection():
     """Соединение с БД с очисткой таблиц"""
-    async with get_pg_connection() as conn:
-        # Очистка перед тестом
+
+    import os
+
+    import asyncpg
+
+    conn = await asyncpg.connect(
+        user=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD", "postgres"),
+        database=os.getenv("DB_NAME", "moderation"),
+        host=os.getenv("DB_HOST", "localhost"),
+        port=int(os.getenv("DB_PORT", "6432")),
+    )
+
+    try:
         await conn.execute("DELETE FROM moderation_results")
         await conn.execute("DELETE FROM advertisement")
         await conn.execute("DELETE FROM sellers")
@@ -296,11 +311,12 @@ async def db_connection():
 
         yield conn
 
-        # Очистка после теста
         await conn.execute("DELETE FROM moderation_results")
         await conn.execute("DELETE FROM advertisement")
         await conn.execute("DELETE FROM sellers")
         await conn.execute("DELETE FROM account")
+    finally:
+        await close_db_pool()
 
 
 @pytest.fixture

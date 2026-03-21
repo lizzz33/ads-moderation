@@ -107,10 +107,12 @@ class AdsRepository:
             logger.error(f"Ошибка БД в close_ad для item_id={item_id}: {e}")
             raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
 
-    async def delete_ad_caches(self, item_id: int, redis_storage) -> None:
+    async def delete_ad_caches(self, item_id: int) -> None:
         """
         Удаление всех кэшей, связанных с объявлением
         """
+        redis_storage = self.request.app.state.redis_storage
+
         try:
             cache_keys = [
                 f"prediction:{item_id}",

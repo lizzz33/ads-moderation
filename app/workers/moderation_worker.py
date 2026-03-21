@@ -7,7 +7,7 @@ from datetime import datetime
 from aiokafka import AIOKafkaConsumer
 
 from app.clients.kafka import KafkaProducer
-from app.clients.postgres import get_pg_connection
+from app.clients.postgres import close_db_pool, get_pg_connection
 from app.clients.settings import (
     CONSUMER_GROUP,
     DLQ_TOPIC,
@@ -39,34 +39,37 @@ async def handle_error(producer, conn, event, error_msg, task_id=None):
         logger.error(f"Ошибка отправки в DLQ: {e}")
 
     if task_id:
-        await conn.execute(
-            "UPDATE moderation_results SET status='failed', error_message=$1 WHERE id=$2",
-            error_msg,
-            task_id,
-        )
+        try:
+            await conn.execute(
+                "UPDATE moderation_results SET status='failed', error_message=$1 WHERE id=$2",
+                error_msg,
+                task_id,
+            )
+        except Exception as e:
+            logger.error(f"Ошибка обновления статуса в БД: {e}")
 
 
 async def main():
     model = load_or_train_model(use_mlflow=os.getenv("USE_MLFLOW"))
     logger.info("Модель загружена")
 
-    async with get_pg_connection() as conn:
-        producer = KafkaProducer(KAFKA_BOOTSTRAP)
-        await producer.start()
+    producer = KafkaProducer(KAFKA_BOOTSTRAP)
+    await producer.start()
 
-        consumer = AIOKafkaConsumer(
-            TOPIC,
-            bootstrap_servers=KAFKA_BOOTSTRAP,
-            group_id=CONSUMER_GROUP,
-            enable_auto_commit=False,
-            auto_offset_reset="earliest",
-            value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-        )
-        await consumer.start()
-        logger.info(f"[worker] consuming {TOPIC} as group={CONSUMER_GROUP}")
+    consumer = AIOKafkaConsumer(
+        TOPIC,
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        group_id=CONSUMER_GROUP,
+        enable_auto_commit=False,
+        auto_offset_reset="earliest",
+        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+    )
+    await consumer.start()
+    logger.info(f"[worker] consuming {TOPIC} as group={CONSUMER_GROUP}")
 
-        try:
-            async for msg in consumer:
+    try:
+        async for msg in consumer:
+            async with get_pg_connection() as conn:
                 try:
                     event = msg.value
                     item_id = event["item_id"]
@@ -140,9 +143,10 @@ async def main():
 
                     await consumer.commit()
 
-        finally:
-            await consumer.stop()
-            await producer.stop()
+    finally:
+        await consumer.stop()
+        await producer.stop()
+        await close_db_pool()
 
 
 if __name__ == "__main__":

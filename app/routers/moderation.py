@@ -15,10 +15,11 @@ from app.models.ads import (
 from app.models.token import TokenData
 from app.repositories.ads import AdsRepository
 from app.repositories.moderation import ModerationRepository
+from app.repositories.prediction import PredictionRepository
 from app.routers.utils import (
     check_kafka,
     check_model,
-    get_prediction,
+    get_prediction_for_api,
     prepare_features,
 )
 
@@ -44,7 +45,7 @@ async def predict(
     check_model(model)
 
     features = prepare_features(ad.model_dump())
-    proba = get_prediction(model, features)
+    proba = get_prediction_for_api(model, features)
     response = AdResponse(is_violation=(proba >= 0.5), probability=proba)
 
     logger.info(f"Ответ: {response}")
@@ -59,12 +60,14 @@ async def simple_predict(
 ):
     logger.info(f"Запрос simple_predict от {current_user.login} для item_id: {ad.item_id}")
 
-    redis_storage = request.app.state.redis_storage
-    cache_key = f"prediction:{ad.item_id}"
-    cached_result = await redis_storage.get(cache_key)
-    if cached_result:
+    prediction_repo = PredictionRepository(request=request)
+
+    cached = await prediction_repo.get_cached_prediction(ad.item_id)
+    if cached:
         logger.info(f"Ответ из кэша для item_id={ad.item_id}")
-        return AdResponse(**cached_result)
+        return AdResponse(
+            is_violation=cached.get("is_violation"), probability=cached.get("probability")
+        )
 
     model = request.app.state.model
     check_model(model)
@@ -83,10 +86,11 @@ async def simple_predict(
         raise HTTPException(status_code=404, detail="Объявление не найдено")
 
     features = prepare_features(row)
-    proba = get_prediction(model, features)
+    proba = get_prediction_for_api(model, features)
     response = AdResponse(is_violation=proba >= 0.5, probability=float(proba))
 
-    await redis_storage.set(cache_key, response.model_dump())
+    result_data = {"is_violation": response.is_violation, "probability": response.probability}
+    await prediction_repo.cache_prediction(ad.item_id, result_data)
     logger.info(f"Результат сохранен в кэш для item_id={ad.item_id}")
 
     return response
@@ -152,8 +156,8 @@ async def get_moderation_result(
 ):
     logger.info(f"Запрос статуса от {current_user.login} для task_id={task_id}")
 
-    redis_storage = request.app.state.redis_storage
     cache_key = f"moderation_result:{task_id}"
+    redis_storage = request.app.state.redis_storage
 
     try:
         cached_result = await redis_storage.get(cache_key)
@@ -203,7 +207,6 @@ async def close_ad(
         f"Запрос на закрытие объявления от {current_user.login} для item_id: {ad_request.item_id}"
     )
 
-    redis_storage = request.app.state.redis_storage
     ads_repo = AdsRepository(request=request)
 
     try:
@@ -239,7 +242,7 @@ async def close_ad(
             status_code=500, detail=f"Не удалось закрыть объявление {ad_request.item_id}"
         )
 
-    await ads_repo.delete_ad_caches(ad_request.item_id, redis_storage)
+    await ads_repo.delete_ad_caches(ad_request.item_id)
 
     logger.info(f"Объявление {ad_request.item_id} успешно закрыто")
     return CloseAdResponse(

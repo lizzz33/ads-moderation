@@ -3,6 +3,8 @@ from datetime import datetime
 
 from aiokafka import AIOKafkaProducer
 
+from app.clients.settings import TOPIC
+
 
 class KafkaProducer:
     def __init__(self, bootstrap_servers: str):
@@ -24,4 +26,4 @@ class KafkaProducer:
 
     async def send_moderation_request(self, item_id: int) -> None:
         payload = {"item_id": item_id, "timestamp": datetime.now().isoformat()}
-        await self.send_json("moderation", payload)
+        await self.send_json(TOPIC, payload)

@@ -4,6 +4,7 @@ import time
 import numpy as np
 from fastapi import HTTPException
 
+from app.errors import PredictionError
 from observability.metrics import (
     MODEL_PREDICTION_PROBABILITY,
     PREDICTION_DURATION,
@@ -36,7 +37,6 @@ def prepare_features(row):
 
 
 def get_prediction(model, features):
-    """Получение предсказания от модели с метриками"""
     try:
         start = time.time()
         proba = model.predict(features)[0]
@@ -53,4 +53,11 @@ def get_prediction(model, features):
     except Exception as e:
         logger.error(f"Ошибка предсказания: {e}")
         PREDICTION_ERRORS_TOTAL.labels(error_type="prediction_error").inc()
+        raise PredictionError(str(e)) from e
+
+
+def get_prediction_for_api(model, features):
+    try:
+        return get_prediction(model, features)
+    except PredictionError:
         raise HTTPException(status_code=500, detail="Ошибка при получении предсказания")
