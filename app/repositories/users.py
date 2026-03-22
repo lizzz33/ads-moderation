@@ -217,17 +217,17 @@ class UserRedisStorage:
 
         return await get_redis_connection().__aenter__()
 
-    async def set(self, row_id: str, row: Mapping[str, Any]) -> None:
+    async def set(self, row_id: str, row: Mapping[str, Any], ex: int = None) -> None:
         """Сохранение пользователя в кэш"""
         redis = await self._get_redis()
         try:
-            pipeline = redis.pipeline()
-            pipeline.set(
-                name=row_id,
-                value=dumps(row),
-            )
-            pipeline.expire(row_id, self._TTL)
-            await pipeline.execute()
+            if ex is not None:
+                await redis.set(row_id, dumps(row), ex=ex)
+            else:
+                pipeline = redis.pipeline()
+                pipeline.set(name=row_id, value=dumps(row))
+                pipeline.expire(row_id, self._TTL)
+                await pipeline.execute()
 
         except Exception as e:
             logger.error(f"Ошибка Redis при сохранении пользователя {row_id}: {e}")

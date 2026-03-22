@@ -10,6 +10,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./app/db/migrations/V001__initial.sql:/docker-entrypoint-initdb.d/V001__initial.sql
+      - ./app/db/migrations/V002__add_is_closed.sql:/docker-entrypoint-initdb.d/V002__add_is_closed.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d moderation"]
       interval: 5s
@@ -62,7 +63,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
   console:
     image: redpandadata/console:latest
     environment:
@@ -71,6 +71,25 @@ services:
       - "8080:8080"
     depends_on:
       - redpanda
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.16.0
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlruns
+    command: >
+      mlflow server 
+      --host 0.0.0.0 
+      --port 5000 
+      --backend-store-uri sqlite:////mlruns/mlflow.db
+      --default-artifact-root file:///mlruns
+      --allowed-hosts "*"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   app:
     build: .
@@ -83,17 +102,27 @@ services:
       DB_NAME: moderation
       DB_HOST: postgres
       DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
       KAFKA_BOOTSTRAP: redpanda:29092
       TOPIC: moderation
       DLQ_TOPIC: moderation_dlq
       CONSUMER_GROUP: moderation-worker
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_ARTIFACT_ROOT: /mlruns
+      MLFLOW_EXPERIMENT_NAME: moderation-model-1
+      MLFLOW_MODEL_NAME: moderation-model
     depends_on:
       postgres:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+      mlflow:
+        condition: service_healthy
     volumes:
       - ./app:/app/app
+      - ./mlruns:/mlruns
     command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
 
   worker:

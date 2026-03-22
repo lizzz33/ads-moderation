@@ -2,6 +2,36 @@
 
 Сервис модерации объявлений с использованием ML-модели для определения нарушений. Поддерживает синхронные и асинхронные запросы, кэширование результатов и метрики для мониторинга.
 
+- [Ads Moderation Service](#ads-moderation-service)
+  - [Функциональность](#функциональность)
+  - [Технологический стек](#технологический-стек)
+  - [Архитектура сервиса](#архитектура-сервиса)
+  - [Быстрый старт](#быстрый-старт)
+    - [Требования](#требования)
+    - [Запуск с Docker Compose](#запуск-с-docker-compose)
+    - [Переменные окружения](#переменные-окружения)
+  - [API Эндпоинты](#api-эндпоинты)
+    - [Пользователи](#пользователи)
+    - [Модерация](#модерация)
+  - [Примеры запросов](#примеры-запросов)
+    - [1. Регистрация пользователя](#1-регистрация-пользователя)
+    - [2. Авторизация](#2-авторизация)
+    - [3. Синхронное предсказание](#3-синхронное-предсказание)
+    - [4. Предсказание по ID объявления (с кэшированием)](#4-предсказание-по-id-объявления-с-кэшированием)
+    - [5. Асинхронное предсказание](#5-асинхронное-предсказание)
+    - [6. Получение результата асинхронной задачи](#6-получение-результата-асинхронной-задачи)
+    - [7. Закрытие объявления](#7-закрытие-объявления)
+  - [Тестирование](#тестирование)
+    - [Установка зависимостей](#установка-зависимостей)
+    - [Запуск тестов](#запуск-тестов)
+    - [Ручное тестирование](#ручное-тестирование)
+  - [Структура проекта](#структура-проекта)
+  - [Мониторинг](#мониторинг)
+    - [Доступные интерфейсы](#доступные-интерфейсы)
+    - [Метрики](#метрики)
+  - [Остановка сервисов](#остановка-сервисов)
+  - [Демонстрация работы сервиса](#демонстрация-работы-сервиса)
+
 ## Функциональность
 
 - **Синхронная модерация** (`/predict`) — мгновенное предсказание по данным объявления
@@ -24,35 +54,69 @@
 | Тестирование | pytest, pytest-asyncio |
 | Контейнеризация | Docker, Docker Compose |
 
-## Архитектура
+## Архитектура сервиса
 
-```
-┌─────────┐     POST /async_predict     ┌─────────────┐
-│ Client  │ ───────────────────────────► │   FastAPI   │
-└─────────┘                              └──────┬──────┘
-                                                 │
-                                                 ▼
-                                        ┌────────────────┐
-                                        │  Kafka Topic   │
-                                        │ "moderation"   │
-                                        └────────┬───────┘
-                                                 │
-        ┌────────────────────────────────────────┼────────────────────────────────────────┐
-        │                                        │                                        │
-        ▼                                        ▼                                        ▼
-┌────────────┐                          ┌────────────┐                          ┌────────────┐
-│  Worker 1  │                          │  Worker 2  │                          │  Worker N  │
-└─────┬──────┘                          └─────┬──────┘                          └─────┬──────┘
-      │                                        │                                        │
-      └────────────────────────────────────────┼────────────────────────────────────────┘
-                                               │
-                    ┌──────────────────────────┴──────────────────────────┐
-                    │                                                     │
-                    ▼                                                     ▼
-          ┌──────────────────┐                                  ┌─────────────────┐
-          │   PostgreSQL     │                                  │   Kafka DLQ     │
-          │ moderation_results│                                  │"moderation_dlq" │
-          └──────────────────┘                                  └─────────────────┘
+```mermaid
+graph TD
+    Client[Client]
+    
+    subgraph API[FastAPI]
+        A[POST /users<br/>POST /login<br/>POST /simple_predict<br/>POST /async_predict<br/>GET /moderation_result]
+    end
+    
+    subgraph Storage[Storage]
+        B[(PostgreSQL)]
+        C[(Redis)]
+        D[MLflow]
+    end
+    
+    subgraph Redpanda[Redpanda]
+        E[Topic: moderation]
+        F[DLQ: moderation_dlq]
+    end
+    
+    subgraph Workers[Workers]
+        G[Worker 1]
+        H[Worker 2]
+    end
+    
+    subgraph Monitoring[Monitoring]
+        I[Prometheus]
+        J[Grafana]
+    end
+    
+    Client --> A
+    
+    A -->|register/login| B
+    A -->|simple_predict| C
+    A -->|simple_predict| D
+    A -->|simple_predict| B
+    A -->|async_predict| B
+    A -->|async_predict| E
+    A -->|get_result| B
+    
+    C -.->|cache hit| Client
+    A -->|JWT| Client
+    
+    E --> G
+    E --> H
+    
+    G --> D
+    H --> D
+    G --> B
+    H --> B
+    G --> C
+    H --> C
+    G -.-> F
+    H -.-> F
+    
+    A -.-> I
+    G -.-> I
+    H -.-> I
+    B -.-> I
+    C -.-> I
+    
+    I --> J
 ```
 
 ## Быстрый старт
@@ -87,42 +151,18 @@ docker-compose ps
 
 ### Переменные окружения
 
-Создайте файл `.env` в корне проекта:
+Скопируйте `.env.example` в `.env` и настройте переменные:
 
-```env
-# MLflow
-USE_MLFLOW=true
+| Переменная | Описание | Значение по умолчанию |
+|------------|----------|----------------------|
+| `USE_MLFLOW` | Включить MLflow | `true` |
+| `DB_HOST` | Хост PostgreSQL | `localhost` |
+| `DB_PORT` | Порт PostgreSQL | `5432` |
+| `REDIS_HOST` | Хост Redis | `redis` |
+| `KAFKA_BOOTSTRAP` | Kafka bootstrap сервер | `localhost:9092` |
+| `SECRET_KEY` | Секретный ключ для JWT | обязательно изменить! |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Время жизни токена | `30` |
 
-# PostgreSQL
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=moderation
-
-# Kafka
-KAFKA_BOOTSTRAP=localhost:9092
-TOPIC=moderation
-DLQ_TOPIC=moderation_dlq
-CONSUMER_GROUP=moderation-worker
-
-# API
-API_PORT=8003
-
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_DB=0
-
-# Retry
-MAX_RETRIES=3
-RETRY_DELAY_SECONDS=5
-
-# JWT
-SECRET_KEY=your-secret-key-here-change-in-production
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-```
 
 ## API Эндпоинты
 
@@ -309,6 +349,7 @@ ads-moderation/
 ├── docker-compose.yml        # Конфигурация Docker Compose
 ├── Dockerfile                # Dockerfile для приложения
 ├── requirements.txt          # Зависимости Python
+├── .env.example              # Шаблон .env
 ├── pytest.ini                # Конфигурация pytest
 └── README.md                 # Документация
 ```
@@ -319,9 +360,10 @@ ads-moderation/
 
 | Сервис | URL | Доступ |
 |--------|-----|--------|
+| MLFlow | http://localhost:5000 | Открытый |
 | Prometheus | http://localhost:9090 | Открытый |
 | Grafana | http://localhost:3000 | admin/admin |
-| Redpanda Console | http://localhost:8080 | Открытый |
+| Redpanda | http://localhost:8080 | Открытый |
 
 ### Метрики
 
@@ -343,3 +385,7 @@ docker-compose down
 # Остановить с удалением томов (очистка данных)
 docker-compose down -v
 ```
+
+## Демонстрация работы сервиса
+
+[Смотреть демо](https://1drv.ms/v/c/12fe8223fa040aac/IQCw1CAL84S4Sa5EU7mEh-wKATFHibVfzqrk5HalMDJfpyU?e=ys5Dix)

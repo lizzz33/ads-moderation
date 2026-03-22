@@ -8,6 +8,8 @@ from mlflow.sklearn import log_model
 from mlflow.tracking import MlflowClient
 from sklearn.linear_model import LogisticRegression
 
+from app.clients.settings import MLFLOW_EXPERIMENT_NAME, MLFLOW_MODEL_NAME, MLFLOW_TRACKING_URI
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -37,20 +39,20 @@ def load_model(path="model.pkl"):
 
 
 def registration_model():
-    mlflow.set_tracking_uri("sqlite:///mlflow.db")
-    mlflow.set_experiment("moderation-model")
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
 
     with mlflow.start_run():
         model = train_model()
-        log_model(model, "model", registered_model_name="moderation-model")
+        log_model(model, "model", registered_model_name=MLFLOW_MODEL_NAME)
 
     client = MlflowClient()
 
-    latest_versions = client.get_latest_versions("moderation-model")
+    latest_versions = client.get_latest_versions(MLFLOW_MODEL_NAME)
     latest_version = max(latest_versions, key=lambda v: int(v.version))
 
     client.transition_model_version_stage(
-        name="moderation-model",
+        name=MLFLOW_MODEL_NAME,
         version=latest_version.version,
         stage="Production",
     )
@@ -61,7 +63,7 @@ def load_model_from_mlflow(model_name: str, stage: str = "Production"):
     return mlflow.sklearn.load_model(model_uri)
 
 
-def check_model_in_mlflow(model_name: str = "moderation-model", stage: str = "Production") -> bool:
+def check_model_in_mlflow(model_name: str = MLFLOW_MODEL_NAME, stage: str = "Production") -> bool:
     client = mlflow.MlflowClient()
 
     if stage:
@@ -79,7 +81,7 @@ def check_model_in_mlflow(model_name: str = "moderation-model", stage: str = "Pr
 def load_or_train_model(
     use_mlflow="true",
     path="model.pkl",
-    model_name: str = "moderation-model",
+    model_name: str = MLFLOW_MODEL_NAME,
 ):
     if use_mlflow == "true":
         if not check_model_in_mlflow():

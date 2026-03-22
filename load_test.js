@@ -9,6 +9,13 @@ const errorRate = new Rate('errors');
 // ID существующих открытых объявлений
 const ITEM_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
+// Тестовый пользователь для получения токена
+const TEST_USER = {
+    name: 'Load Test User',
+    login: 'test@example.com',
+    password: 'qwerty123'
+};
+
 export const options = {
     stages: [
         { duration: '30s', target: 10 },
@@ -23,7 +30,53 @@ export const options = {
     },
 };
 
-export default function () {
+// Создаём пользователя и получаем токен перед тестом
+export function setup() {
+    console.log('Setup: Creating test user...');
+    const createRes = http.post(`${BASE_URL}/users/`, JSON.stringify({
+        name: TEST_USER.name,
+        login: TEST_USER.login,
+        password: TEST_USER.password
+    }), { headers: HEADERS });
+
+    console.log(`Create user status: ${createRes.status}`);
+
+    console.log('Setup: Getting token...');
+    const loginRes = http.post(`${BASE_URL}/login`, JSON.stringify({
+        login: TEST_USER.login,
+        password: TEST_USER.password
+    }), { headers: HEADERS });
+
+    check(loginRes, { 'Get token 200': (r) => r.status === 200 });
+
+    if (loginRes.status !== 200) {
+        console.error('Failed to get token');
+        return { token: null };
+    }
+
+    try {
+        const token = loginRes.json('access_token');
+        console.log(`Token obtained: ${token.substring(0, 20)}...`);
+        return { token: token };
+    } catch (e) {
+        console.error(`Error parsing token: ${e}`);
+        return { token: null };
+    }
+}
+
+export default function (data) {
+    const token = data.token;
+
+    if (!token) {
+        console.error('No token available');
+        return;
+    }
+
+    const authHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+    };
+
     const r = Math.random();
     const id = ITEM_IDS[Math.floor(Math.random() * ITEM_IDS.length)];
 
@@ -31,7 +84,7 @@ export default function () {
         // GET /simple_predict - читаем существующие объявления
         const res = http.post(`${BASE_URL}/simple_predict`,
             JSON.stringify({ item_id: id }),
-            { headers: HEADERS }
+            { headers: authHeaders }
         );
         check(res, { 'simple_predict 200': (r) => r.status === 200 });
         errorRate.add(res.status !== 200);
@@ -49,7 +102,7 @@ export default function () {
                 category: 5,
                 images_qty: 3
             }),
-            { headers: HEADERS }
+            { headers: authHeaders }
         );
         check(res, { 'predict 200': (r) => r.status === 200 });
         errorRate.add(res.status !== 200);
@@ -58,7 +111,7 @@ export default function () {
         // POST /async_predict - асинхронные предсказания
         const res = http.post(`${BASE_URL}/async_predict`,
             JSON.stringify({ item_id: id }),
-            { headers: HEADERS }
+            { headers: authHeaders }
         );
         check(res, { 'async_predict 200': (r) => r.status === 200 });
         errorRate.add(res.status !== 200);

@@ -32,6 +32,11 @@ REDIS_TTL = int(os.getenv("REDIS_TTL_DAYS", 1)) * 24 * 60 * 60
 # модель может обновиться, объявления могут закрыть
 REDIS_TTL_PREDICTION = int(os.getenv("REDIS_TTL_PREDICTION", 3600))
 
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "moderation-model-1")
+MLFLOW_MODEL_NAME = os.getenv("MLFLOW_MODEL_NAME", "moderation-model")
+
+
 SECRET_KEY = os.getenv("SECRET_KEY", "")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
