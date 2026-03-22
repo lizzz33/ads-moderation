@@ -57,66 +57,89 @@
 ## Архитектура сервиса
 
 ```mermaid
-graph TD
-    Client[Client]
-    
-    subgraph API[FastAPI]
-        A[POST /users<br/>POST /login<br/>POST /simple_predict<br/>POST /async_predict<br/>GET /moderation_result]
+graph TB
+    subgraph Clients
+        Client[Client]
     end
-    
-    subgraph Storage[Storage]
-        B[(PostgreSQL)]
-        C[(Redis)]
-        D[MLflow]
+
+    subgraph API_Layer[API Layer - FastAPI]
+        CreateUser[POST /users]
+        Login[POST /login]
+        SimplePredict[POST /simple_predict]
+        AsyncPredict[POST /async_predict]
+        GetResult[GET /moderation_result/task_id]
     end
-    
-    subgraph Redpanda[Redpanda]
-        E[Topic: moderation]
-        F[DLQ: moderation_dlq]
+
+    subgraph Message_Broker[Message Broker - Redpanda]
+        Kafka_Mod[Topic: moderation]
+        Kafka_DLQ[Topic: moderation_dlq]
     end
-    
-    subgraph Workers[Workers]
-        G[Worker 1]
-        H[Worker 2]
+
+    subgraph Processing[Processing Layer]
+        Worker1[Worker 1]
+        Worker2[Worker 2]
     end
-    
+
+    subgraph Storage[Storage Layer]
+        PostgreSQL[(PostgreSQL)]
+        Redis[(Redis)]
+        MLflow[MLflow<br/>Model Registry]
+    end
+
     subgraph Monitoring[Monitoring]
-        I[Prometheus]
-        J[Grafana]
+        Prometheus[Prometheus]
+        Grafana[Grafana]
     end
+
+    Client -->|POST /users| CreateUser
+    CreateUser -->|Create user| PostgreSQL
     
-    Client --> A
+    Client -->|POST /login| Login
+    Login -->|Verify user| PostgreSQL
     
-    A -->|register/login| B
-    A -->|simple_predict| C
-    A -->|simple_predict| D
-    A -->|simple_predict| B
-    A -->|async_predict| B
-    A -->|async_predict| E
-    A -->|get_result| B
+    Client -->|POST /simple_predict| SimplePredict
+    SimplePredict -->|Check cache| Redis
+    Redis -->|Cache hit| Client
+    SimplePredict -->|Cache miss| MLflow
+    SimplePredict -->|Store result| Redis
+    SimplePredict -->|Store result| PostgreSQL
     
-    C -.->|cache hit| Client
-    A -->|JWT| Client
+    Client -->|POST /async_predict| AsyncPredict
+    AsyncPredict -->|Create task| PostgreSQL
+    AsyncPredict -->|Produce message| Kafka_Mod
+    AsyncPredict -->|Return task_id| Client
     
-    E --> G
-    E --> H
+    Client -->|GET /moderation_result/task_id| GetResult
+    GetResult -->|Check status| PostgreSQL
+    GetResult -->|Return result| Client
     
-    G --> D
-    H --> D
-    G --> B
-    H --> B
-    G --> C
-    H --> C
-    G -.-> F
-    H -.-> F
+    Kafka_Mod -->|Consume| Worker1
+    Kafka_Mod -->|Consume| Worker2
     
-    A -.-> I
-    G -.-> I
-    H -.-> I
-    B -.-> I
-    C -.-> I
+    Worker1 -->|Load model| MLflow
+    Worker2 -->|Load model| MLflow
     
-    I --> J
+    Worker1 -->|Write results| PostgreSQL
+    Worker2 -->|Write results| PostgreSQL
+    
+    Worker1 -->|Update task| PostgreSQL
+    Worker2 -->|Update task| PostgreSQL
+    
+    Worker1 -->|Cache result| Redis
+    Worker2 -->|Cache result| Redis
+    
+    Worker1 -.->|On error| Kafka_DLQ
+    Worker2 -.->|On error| Kafka_DLQ
+    
+    SimplePredict -.->|Metrics| Prometheus
+    AsyncPredict -.->|Metrics| Prometheus
+    GetResult -.->|Metrics| Prometheus
+    Worker1 -.->|Metrics| Prometheus
+    Worker2 -.->|Metrics| Prometheus
+    PostgreSQL -.->|Metrics| Prometheus
+    Redis -.->|Metrics| Prometheus
+    
+    Prometheus -->|Data source| Grafana
 ```
 
 ## Быстрый старт
