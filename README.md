@@ -168,9 +168,10 @@ docker-compose ps
 | Сервис | URL | Логин/Пароль |
 |--------|-----|--------------|
 | API | http://localhost:8003 | — |
+| MLflow | http://localhost:5000 | — |
 | Grafana | http://localhost:3000 | admin/admin |
 | Prometheus | http://localhost:9090 | — |
-| Redpanda Console | http://localhost:8080 | — |
+| Redpanda | http://localhost:8080 | — |
 
 ### Переменные окружения
 
