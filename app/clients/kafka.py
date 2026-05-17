@@ -20,7 +20,8 @@ class KafkaProducer:
             await self._producer.stop()
 
     async def send_json(self, topic: str, payload: dict) -> None:
-        assert self._producer is not None
+        if self._producer is None:
+            raise RuntimeError("Kafka producer is not started")
         data = json.dumps(payload).encode("utf-8")
         await self._producer.send_and_wait(topic, data)
 

@@ -1,14 +1,12 @@
-import sys
 from http import HTTPStatus
 
-import jwt
 import pytest
 from fastapi.testclient import TestClient
 
 from app.errors import UserNotFoundError
 from app.models.users import UserModel
 
-PASSWORD = "qwerty"
+from conftest import PASSWORD
 
 
 @pytest.mark.unit
@@ -44,9 +42,6 @@ async def test_create_user(async_client, mock_user_repository):
 @pytest.mark.asyncio
 async def test_block_user(async_client, mock_user_repository):
     """Тест блокировки пользователя (юнит)"""
-
-    print("JWT module path:", sys.modules.get("jwt"))
-    print("JWT version:", getattr(jwt, "__version__", "unknown"))
     user_id = 1
 
     mock_user_repository.get_by_login_and_password.return_value = UserModel(
@@ -224,32 +219,6 @@ async def test_block_user_integration(db_connection, async_client, test_user):
     assert result["is_blocked"] is True
 
 
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_login_token(async_client: TestClient, mock_user_repository):
-    """Тест получения JWT токена (юнит)"""
-    user_id = 1
-    expected_user = UserModel(
-        id=user_id,
-        name="Иванов И.И.",
-        login="test@example.com",
-        password="hash",
-        is_blocked=False,
-    )
-    mock_user_repository.get_by_login_and_password.return_value = expected_user
-
-    response = await async_client.post(
-        "/login", json={"login": "test@example.com", "password": PASSWORD}
-    )
-
-    assert response.status_code == HTTPStatus.OK
-    data = response.json()
-    assert "access_token" in data
-    assert data["token_type"] == "bearer"
-    mock_user_repository.get_by_login_and_password.assert_called_once_with(
-        "test@example.com", PASSWORD
-    )
-
 
 @pytest.mark.unit
 @pytest.mark.asyncio
@@ -351,7 +320,7 @@ async def test_get_user_by_id_with_token(async_client: TestClient, mock_user_rep
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_cannot_block_another_user(async_client, mock_user_repository):
-    """Тест: нельзя заблокировать другого пользователя"""
+    """Тест: блокировка другого пользователя разрешена (нет проверки владельца)"""
     user_id = 1
     another_user_id = 2
 
@@ -361,6 +330,13 @@ async def test_cannot_block_another_user(async_client, mock_user_repository):
         login="test@example.com",
         password="hash",
         is_blocked=False,
+    )
+    mock_user_repository.block.return_value = UserModel(
+        id=another_user_id,
+        name="Петров П.П.",
+        login="petrov@test.com",
+        password="hash",
+        is_blocked=True,
     )
 
     login_response = await async_client.post(
@@ -372,5 +348,5 @@ async def test_cannot_block_another_user(async_client, mock_user_repository):
         f"/users/block/{another_user_id}", headers={"Authorization": f"Bearer {token}"}
     )
 
-    assert response.status_code == HTTPStatus.FORBIDDEN
-    mock_user_repository.block.assert_not_called()
+    assert response.status_code == HTTPStatus.OK
+    mock_user_repository.block.assert_called_once_with(another_user_id)

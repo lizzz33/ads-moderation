@@ -9,9 +9,9 @@ from app.repositories.prediction import PredictionRepository
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_get_cached_prediction_hit():
-    """Тест получения предсказания из кэша"""
+    """Тест получения предсказания из кэша (Redis возвращает строку)"""
     mock_redis = AsyncMock()
-    mock_redis.get.return_value = {"is_violation": True, "probability": 0.9}
+    mock_redis.get.return_value = json.dumps({"is_violation": True, "probability": 0.9})
 
     mock_request = Mock()
     mock_request.app.state.redis_storage = mock_redis

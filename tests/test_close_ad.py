@@ -2,13 +2,13 @@ from http import HTTPStatus
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.repositories.ads import AdsRepository
 
 
 @pytest.mark.unit
-def test_close_ad_success_unit(app_client: TestClient, mock_ads_repository, auth_token):
+@pytest.mark.asyncio
+async def test_close_ad_success_unit(async_client, mock_ads_repository, auth_token):
     """Тест успешного закрытия объявления"""
     mock_ads_repository.get_ad_by_id.return_value = {
         "item_id": 123,
@@ -18,24 +18,26 @@ def test_close_ad_success_unit(app_client: TestClient, mock_ads_repository, auth
     mock_ads_repository.close_ad.return_value = True
 
     headers = {"Authorization": f"Bearer {auth_token}"}
-    response = app_client.post("/close", json={"item_id": 123}, headers=headers)
+    response = await async_client.post("/close", json={"item_id": 123}, headers=headers)
 
     assert response.status_code == HTTPStatus.OK
 
 
 @pytest.mark.unit
-def test_close_ad_not_found_unit(app_client: TestClient, mock_ads_repository, auth_token):
+@pytest.mark.asyncio
+async def test_close_ad_not_found_unit(async_client, mock_ads_repository, auth_token):
     """Тест закрытия несуществующего объявления"""
     mock_ads_repository.get_ad_by_id.return_value = None
 
     headers = {"Authorization": f"Bearer {auth_token}"}
-    response = app_client.post("/close", json={"item_id": 999}, headers=headers)
+    response = await async_client.post("/close", json={"item_id": 999}, headers=headers)
 
     assert response.status_code == HTTPStatus.NOT_FOUND
 
 
 @pytest.mark.unit
-def test_close_ad_twice_unit(app_client: TestClient, mock_ads_repository, auth_token):
+@pytest.mark.asyncio
+async def test_close_ad_twice_unit(async_client, mock_ads_repository, auth_token):
     """Тест повторного закрытия объявления"""
     mock_ads_repository.get_ad_by_id.side_effect = [
         {"item_id": 123, "is_closed": False, "seller_id": 1},
@@ -44,21 +46,27 @@ def test_close_ad_twice_unit(app_client: TestClient, mock_ads_repository, auth_t
     mock_ads_repository.close_ad.return_value = True
 
     headers = {"Authorization": f"Bearer {auth_token}"}
-    first = app_client.post("/close", json={"item_id": 123}, headers=headers)
+    first = await async_client.post("/close", json={"item_id": 123}, headers=headers)
     assert first.status_code == HTTPStatus.OK
+    assert first.json()["success"] is True
+
+    second = await async_client.post("/close", json={"item_id": 123}, headers=headers)
+    assert second.status_code == HTTPStatus.OK
+    assert "уже было закрыто" in second.json()["message"]
 
 
 @pytest.mark.unit
-def test_close_ad_db_error_unit(app_client: TestClient, mock_ads_repository, auth_token):
+@pytest.mark.asyncio
+async def test_close_ad_db_error_unit(async_client, mock_ads_repository, auth_token):
     """Тест ошибки БД"""
-    from fastapi import HTTPException
+    from app.errors import DatabaseUnavailableError
 
-    mock_ads_repository.get_ad_by_id.side_effect = HTTPException(
-        status_code=503, detail="Сервис базы данных временно недоступен"
+    mock_ads_repository.get_ad_by_id.side_effect = DatabaseUnavailableError(
+        "Сервис базы данных временно недоступен"
     )
 
     headers = {"Authorization": f"Bearer {auth_token}"}
-    response = app_client.post("/close", json={"item_id": 123}, headers=headers)
+    response = await async_client.post("/close", json={"item_id": 123}, headers=headers)
 
     assert response.status_code == 503
 

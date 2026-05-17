@@ -6,8 +6,8 @@ import pytest
 from app.models.users import UserModel
 from app.repositories.users import UserPostgresStorage, UserRedisStorage, UserRepository
 from app.services.auth import hash_password
+from conftest import PASSWORD
 
-PASSWORD = "qwerty"
 hashed_password = hash_password(PASSWORD)
 
 

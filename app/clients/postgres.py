@@ -16,7 +16,7 @@ async def init_db_pool():
             password=os.getenv("DB_PASSWORD", "postgres"),
             database=os.getenv("DB_NAME", "moderation"),
             host=os.getenv("DB_HOST", "localhost"),
-            port=int(os.getenv("DB_PORT", "6432")),
+            port=int(os.getenv("DB_PORT", "5432")),
             min_size=1,
             max_size=10,
         )

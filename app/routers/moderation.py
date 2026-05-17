@@ -29,7 +29,6 @@ async_predict_router = APIRouter(prefix="/async_predict")
 moderation_result_router = APIRouter(prefix="/moderation_result")
 close_ad_router = APIRouter(prefix="/close")
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -76,11 +75,9 @@ async def simple_predict(
 
     try:
         row = await ads_repo.get_ad_for_moderation(ad.item_id)
-    except HTTPException as e:
-        raise e
     except Exception as e:
         logger.error(f"Неожиданная ошибка: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise
 
     if not row:
         raise HTTPException(status_code=404, detail="Объявление не найдено")
@@ -112,11 +109,9 @@ async def async_predict(
 
     try:
         ad_id = await ads_repo.get_ad_id(ad.item_id)
-    except HTTPException as e:
-        raise e
     except Exception as e:
         logger.error(f"Ошибка при проверке объявления: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise
 
     if not ad_id:
         raise HTTPException(
@@ -125,11 +120,9 @@ async def async_predict(
 
     try:
         task_id = await moderation_repo.create_task(ad_id)
-    except HTTPException as e:
-        raise e
     except Exception as e:
         logger.error(f"Ошибка создания задачи: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка при создании задачи модерации")
+        raise
 
     try:
         await kafka_producer.send_moderation_request(ad_id)
@@ -171,11 +164,9 @@ async def get_moderation_result(
 
     try:
         result = await moderation_repo.get_task_result(task_id)
-    except HTTPException as e:
-        raise e
     except Exception as e:
         logger.error(f"Ошибка при получении задачи {task_id}: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise
 
     if not result:
         raise HTTPException(status_code=404, detail=f"Задача {task_id} не найдена")
@@ -211,11 +202,9 @@ async def close_ad(
 
     try:
         ad = await ads_repo.get_ad_by_id(ad_request.item_id)
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Ошибка при проверке объявления: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise
 
     if not ad:
         raise HTTPException(
@@ -231,11 +220,9 @@ async def close_ad(
 
     try:
         closed = await ads_repo.close_ad(ad_request.item_id)
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Ошибка при закрытии объявления: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise
 
     if not closed:
         raise HTTPException(

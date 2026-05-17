@@ -3,8 +3,9 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
 import asyncpg
-from fastapi import HTTPException, Request
+from fastapi import Request
 
+from app.errors import DatabaseUnavailableError, RepositoryError
 from observability.metrics import track_db_query
 
 logger = logging.getLogger(__name__)
@@ -31,16 +32,16 @@ class ModerationRepository:
                 return row["id"]
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД при создании задачи для item_id={item_id}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
         except Exception as e:
             logger.error(f"Неожиданная ошибка при создании задачи: {e}")
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+            raise RepositoryError()
 
     @track_db_query("update")
     async def mark_task_failed(self, task_id: int, error: str) -> None:
         """Отметить задачу как ошибочную"""
         query = """
-            UPDATE moderation_results 
+            UPDATE moderation_results
             SET status = 'failed', error_message = $1
             WHERE id = $2
         """
@@ -51,21 +52,21 @@ class ModerationRepository:
                 logger.info(f"Задача {task_id} отмечена как failed: {error}")
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД при обновлении задачи {task_id}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
         except Exception as e:
             logger.error(f"Неожиданная ошибка при обновлении задачи {task_id}: {e}")
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+            raise RepositoryError()
 
     @track_db_query("select")
     async def get_task_result(self, task_id: int) -> Optional[Mapping[str, Any]]:
         """Получение результата задачи по ID"""
         query = """
-            SELECT 
+            SELECT
                 id as task_id,
                 status,
                 is_violation,
                 probability
-            FROM moderation_results 
+            FROM moderation_results
             WHERE id = $1
         """
 
@@ -75,7 +76,7 @@ class ModerationRepository:
                 return dict(row) if row else None
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД при получении задачи {task_id}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
         except Exception as e:
             logger.error(f"Неожиданная ошибка при получении задачи {task_id}: {e}")
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+            raise RepositoryError()

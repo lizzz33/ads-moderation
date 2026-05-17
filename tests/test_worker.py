@@ -1,4 +1,6 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from app.model import train_model
 
 import pytest
 
@@ -19,11 +21,11 @@ async def test_worker_processes_message_successfully(db_connection, test_ad, tes
         with patch("app.workers.moderation_worker.KafkaProducer") as MockProducer:
             mock_producer = AsyncMock()
             MockProducer.return_value = mock_producer
-
-            try:
-                await main()
-            except StopAsyncIteration:
-                pass
+            with patch("app.workers.moderation_worker.load_or_train_model", return_value=train_model()):
+                try:
+                    await main()
+                except StopAsyncIteration:
+                    pass
 
     result = await db_connection.fetchrow(
         "SELECT status, is_violation, probability FROM moderation_results WHERE id = $1", test_task
@@ -51,11 +53,11 @@ async def test_worker_handles_missing_ad(db_connection, test_task):
         with patch("app.workers.moderation_worker.KafkaProducer") as MockProducer:
             mock_producer = AsyncMock()
             MockProducer.return_value = mock_producer
-
-            try:
-                await main()
-            except StopAsyncIteration:
-                pass
+            with patch("app.workers.moderation_worker.load_or_train_model", return_value=MagicMock()):
+                try:
+                    await main()
+                except StopAsyncIteration:
+                    pass
 
     result = await db_connection.fetchrow(
         "SELECT status FROM moderation_results WHERE id = $1", test_task
@@ -77,13 +79,14 @@ async def test_worker_retry_mechanism(test_ad, test_task):
 
     with patch("app.workers.moderation_worker.AIOKafkaConsumer", return_value=mock_consumer):
         with patch("app.workers.moderation_worker.KafkaProducer", return_value=mock_producer):
-            with patch(
-                "app.workers.moderation_worker.get_prediction", side_effect=Exception("ML Error")
-            ):
-                try:
-                    await main()
-                except StopAsyncIteration:
-                    pass
+            with patch("app.workers.moderation_worker.load_or_train_model", return_value=MagicMock()):
+                with patch(
+                    "app.workers.moderation_worker.get_prediction", side_effect=Exception("ML Error")
+                ):
+                    try:
+                        await main()
+                    except StopAsyncIteration:
+                        pass
 
     assert mock_producer.send_json.call_count > 0
 
@@ -106,13 +109,14 @@ async def test_worker_sends_to_dlq_after_max_retries(test_ad, test_task):
 
     with patch("app.workers.moderation_worker.AIOKafkaConsumer", return_value=mock_consumer):
         with patch("app.workers.moderation_worker.KafkaProducer", return_value=mock_producer):
-            with patch(
-                "app.workers.moderation_worker.get_prediction", side_effect=Exception("ML Error")
-            ):
-                try:
-                    await main()
-                except StopAsyncIteration:
-                    pass
+            with patch("app.workers.moderation_worker.load_or_train_model", return_value=MagicMock()):
+                with patch(
+                    "app.workers.moderation_worker.get_prediction", side_effect=Exception("ML Error")
+                ):
+                    try:
+                        await main()
+                    except StopAsyncIteration:
+                        pass
 
     assert mock_producer.send_json.called
     call_args = mock_producer.send_json.call_args[0]

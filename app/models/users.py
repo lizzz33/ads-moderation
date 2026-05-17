@@ -1,7 +1,15 @@
 from pydantic import BaseModel
 
 
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    login: str
+    is_blocked: bool = True
+
+
 class UserModel(BaseModel):
+    """Только для внутреннего использования"""
     id: int
     name: str
     login: str

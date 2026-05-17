@@ -3,8 +3,9 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
 import asyncpg
-from fastapi import HTTPException, Request
+from fastapi import Request
 
+from app.errors import DatabaseUnavailableError
 from observability.metrics import track_db_query
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ class AdsRepository:
     async def get_ad_for_moderation(self, item_id: int) -> Optional[Mapping[str, Any]]:
         """Получение объявления для модерации"""
         query = """
-            SELECT 
+            SELECT
                 a.item_id,
                 a.name,
                 a.description,
@@ -43,7 +44,7 @@ class AdsRepository:
                 return None
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД в get_ad_for_moderation для item_id={item_id}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
 
     @track_db_query("select")
     async def get_ad_id(self, item_id: int) -> Optional[int]:
@@ -56,13 +57,13 @@ class AdsRepository:
                 return row["item_id"] if row else None
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД в get_ad_id для item_id={item_id}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
 
     @track_db_query("select")
     async def get_ad_by_id(self, item_id: int) -> Optional[Mapping[str, Any]]:
         """Получение объявления по ID (включая закрытые) для проверки статуса"""
         query = """
-            SELECT 
+            SELECT
                 a.item_id,
                 a.name,
                 a.description,
@@ -84,7 +85,7 @@ class AdsRepository:
                 return None
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД в get_ad_by_id для item_id={item_id}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
 
     @track_db_query("update")
     async def close_ad(self, item_id: int) -> bool:
@@ -93,7 +94,7 @@ class AdsRepository:
         - Устанавливает is_closed = True
         """
         query = """
-            UPDATE advertisement 
+            UPDATE advertisement
             SET is_closed = TRUE, updated_at = CURRENT_TIMESTAMP
             WHERE item_id = $1 AND is_closed = FALSE
             RETURNING item_id
@@ -105,7 +106,7 @@ class AdsRepository:
                 return bool(result)
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД в close_ad для item_id={item_id}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
 
     async def delete_ad_caches(self, item_id: int) -> None:
         """
@@ -119,7 +120,7 @@ class AdsRepository:
             ]
 
             query = """
-                SELECT id FROM moderation_results 
+                SELECT id FROM moderation_results
                 WHERE item_id = $1
             """
 

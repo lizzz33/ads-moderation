@@ -1,16 +1,19 @@
+import pytest
 from http import HTTPStatus
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from app.repositories.ads import AdsRepository
 from app.services.auth import hash_password
+from conftest import PASSWORD
 
-PASSWORD = "qwerty"
-hashed_password = hash_password(PASSWORD)
+
+@pytest.fixture(scope="module")
+def hashed_password():
+    return hash_password(PASSWORD)
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "invalid_data",
     [
@@ -22,10 +25,10 @@ hashed_password = hash_password(PASSWORD)
         None,
     ],
 )
-def test_simple_predict_validation(app_client, auth_token, invalid_data):
+async def test_simple_predict_validation(async_client, auth_token, invalid_data):
     """Тест валидации входных данных"""
     headers = {"Authorization": f"Bearer {auth_token}"}
-    response = app_client.post("/simple_predict", json=invalid_data, headers=headers)
+    response = await async_client.post("/simple_predict", json=invalid_data, headers=headers)
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
 
@@ -63,7 +66,7 @@ async def test_simple_predict_with_join(async_client, test_ad, auth_token):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_simple_predict_logic(db_connection, async_client, auth_token):
+async def test_simple_predict_logic(db_connection, async_client, auth_token, hashed_password):
     """Интеграционный тест логики simple_predict с реальными данными"""
 
     async def create_test_seller_and_ad(conn):
@@ -122,7 +125,8 @@ async def test_simple_predict_logic(db_connection, async_client, auth_token):
     ],
 )
 async def test_simple_predict_various_cases(
-    db_connection, async_client, is_verified, images_qty, category, description_length, auth_token
+    db_connection, async_client, is_verified, images_qty, category, description_length, auth_token,
+    hashed_password,
 ):
     """Параметризированный интеграционный тест с разными комбинациями данных"""
 
@@ -133,8 +137,8 @@ async def test_simple_predict_various_cases(
             VALUES ($1, $2, $3, $4)
             RETURNING seller_id
             """,
-            f"user_{is_verified}_{category}",
-            f"user_{category}@test.com",
+            f"user_{is_verified}_{category}_{description_length}",
+            f"user_{is_verified}_{category}_{description_length}@test.com",
             hashed_password,
             is_verified,
         )

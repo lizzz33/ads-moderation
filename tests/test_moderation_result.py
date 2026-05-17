@@ -2,7 +2,7 @@ from http import HTTPStatus
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi.exceptions import HTTPException
+from fastapi import HTTPException
 
 from app.models.ads import AdSimpleRequest, ModerationResultResponse
 from app.repositories.moderation import ModerationRepository
@@ -90,7 +90,7 @@ async def test_get_moderation_result_pending_not_cached(mock_request, mock_curre
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_get_moderation_result_db_error(mock_request, mock_current_user):
-    """Тест: 500 при ошибке БД"""
+    """Тест: исключение при ошибке БД пробрасывается наверх"""
     mock_request.app.state.redis_storage.get.return_value = None
 
     with patch("app.routers.moderation.ModerationRepository") as MockModerationRepo:
@@ -98,10 +98,8 @@ async def test_get_moderation_result_db_error(mock_request, mock_current_user):
         mock_repo_instance.get_task_result.side_effect = Exception("DB error")
         MockModerationRepo.return_value = mock_repo_instance
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(Exception, match="DB error"):
             await get_moderation_result(123, mock_request, mock_current_user)
-
-        assert exc_info.value.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 @pytest.mark.unit

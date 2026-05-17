@@ -9,3 +9,4 @@ my_test.py
 create_table.py
 model.pkl
 .coverage
+.claudeignore

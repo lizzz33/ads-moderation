@@ -6,10 +6,12 @@ import asyncpg
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 
 from app.clients.kafka import KafkaProducer
 from app.clients.settings import KAFKA_BOOTSTRAP, PG_DSN
+from app.errors import DatabaseUnavailableError, RepositoryError
 from app.model import load_or_train_model
 from app.repositories.users import UserRedisStorage
 from app.routers.moderation import (
@@ -39,10 +41,22 @@ async def lifespan(app: FastAPI):
     app.state.redis_storage = UserRedisStorage()
     yield
 
+    await app.state.pg_pool.close()
     await app.state.kafka_producer.stop()
 
 
 app = FastAPI(lifespan=lifespan, title="Сервис модерации объявлений")
+
+
+@app.exception_handler(DatabaseUnavailableError)
+async def db_unavailable_handler(request, exc):
+    return JSONResponse(status_code=503, content={"detail": "Сервис базы данных временно недоступен"})
+
+
+@app.exception_handler(RepositoryError)
+async def repository_error_handler(request, exc):
+    return JSONResponse(status_code=500, content={"detail": "Внутренняя ошибка сервера"})
+
 
 instrumentator = Instrumentator(
     should_group_status_codes=True,

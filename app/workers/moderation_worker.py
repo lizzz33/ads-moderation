@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import signal
 from datetime import datetime
 
 from aiokafka import AIOKafkaConsumer
@@ -19,8 +20,13 @@ from app.clients.settings import (
 from app.model import load_or_train_model
 from app.routers.utils import get_prediction, prepare_features
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+shutdown_event = asyncio.Event()
+
+
+def _signal_handler(*_):
+    shutdown_event.set()
 
 
 async def handle_error(producer, conn, event, error_msg, task_id=None):
@@ -67,8 +73,15 @@ async def main():
     await consumer.start()
     logger.info(f"[worker] consuming {TOPIC} as group={CONSUMER_GROUP}")
 
+    loop = asyncio.get_running_loop()
+    loop.add_signal_handler(signal.SIGTERM, _signal_handler)
+    loop.add_signal_handler(signal.SIGINT, _signal_handler)
+
     try:
         async for msg in consumer:
+            if shutdown_event.is_set():
+                break
+
             async with get_pg_connection() as conn:
                 try:
                     event = msg.value
@@ -80,7 +93,7 @@ async def main():
 
                     row = await conn.fetchrow(
                         """
-                        SELECT 
+                        SELECT
                             s.is_verified as is_verified_seller,
                             a.images_qty,
                             a.description,
@@ -98,7 +111,7 @@ async def main():
                     if not task_id:
                         task_row = await conn.fetchrow(
                             """
-                            SELECT id FROM moderation_results 
+                            SELECT id FROM moderation_results
                             WHERE item_id = $1 AND status = 'pending'
                             ORDER BY created_at DESC
                             LIMIT 1
@@ -116,9 +129,9 @@ async def main():
 
                     await conn.execute(
                         """
-                        UPDATE moderation_results 
-                        SET status = 'completed', 
-                            is_violation = $1, 
+                        UPDATE moderation_results
+                        SET status = 'completed',
+                            is_violation = $1,
                             probability = $2,
                             processed_at = CURRENT_TIMESTAMP
                         WHERE id = $3

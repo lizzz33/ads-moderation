@@ -1,7 +1,7 @@
 import logging
-import pickle
 from pathlib import Path
 
+import joblib
 import mlflow
 import numpy as np
 from mlflow.sklearn import log_model
@@ -10,7 +10,6 @@ from sklearn.linear_model import LogisticRegression
 
 from app.clients.settings import MLFLOW_EXPERIMENT_NAME, MLFLOW_MODEL_NAME, MLFLOW_TRACKING_URI
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -28,14 +27,12 @@ def train_model():
     return model
 
 
-def save_model(model, path="model.pkl"):
-    with open(path, "wb") as f:
-        pickle.dump(model, f)
+def save_model(model, path="model.joblib"):
+    joblib.dump(model, path)
 
 
-def load_model(path="model.pkl"):
-    with open(path, "rb") as f:
-        return pickle.load(f)
+def load_model(path="model.joblib"):
+    return joblib.load(path)
 
 
 def registration_model():
@@ -71,7 +68,8 @@ def check_model_in_mlflow(model_name: str = MLFLOW_MODEL_NAME, stage: str = "Pro
         try:
             model = mlflow.sklearn.load_model(model_uri)
             return model is not None
-        except:
+        except Exception:
+            logger.warning("Model not found in MLflow", exc_info=True)
             return False
     else:
         model_versions = client.search_model_versions(f"name='{model_name}'")
@@ -80,7 +78,7 @@ def check_model_in_mlflow(model_name: str = MLFLOW_MODEL_NAME, stage: str = "Pro
 
 def load_or_train_model(
     use_mlflow="true",
-    path="model.pkl",
+    path="model.joblib",
     model_name: str = MLFLOW_MODEL_NAME,
 ):
     if use_mlflow == "true":

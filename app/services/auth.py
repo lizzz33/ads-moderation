@@ -1,12 +1,14 @@
-import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
 from fastapi import HTTPException, status
+from passlib.context import CryptContext
 
 from app.clients.settings import ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY
 from app.models.token import TokenData
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class AuthService:
@@ -59,10 +61,10 @@ auth_service = AuthService()
 
 
 def hash_password(password: str) -> str:
-    """Хеширование пароля с помощью MD5"""
-    return hashlib.md5(password.encode()).hexdigest()
+    """Хеширование пароля с помощью bcrypt"""
+    return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Проверка пароля"""
-    return hash_password(plain_password) == hashed_password
+    return pwd_context.verify(plain_password, hashed_password)

@@ -1,4 +1,3 @@
-import asyncio
 import uuid
 from http import HTTPStatus
 from typing import Any, Generator, Mapping
@@ -19,15 +18,6 @@ from app.models.users import UserModel
 from app.services.auth import hash_password
 
 PASSWORD = "qwerty"
-
-
-@pytest.fixture
-def event_loop():
-    """Фикстура для event loop в асинхронных тестах"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    yield loop
-    loop.close()
 
 
 class MockPool:
@@ -69,8 +59,7 @@ def mock_user_repository():
 
     mock_repo = AsyncMock(spec=UserRepository)
 
-    mock_service = UserService()
-    mock_service.user_repo = mock_repo
+    mock_service = UserService(user_repo=mock_repo)
 
     with patch.object(users, "get_user_service", return_value=mock_service):
         yield mock_repo
@@ -142,7 +131,7 @@ def mock_moderation_repository():
 @pytest.fixture
 def app_client(db_connection) -> Generator[TestClient, None, None]:
     """Синхронный тестовый клиент с подключением к БД"""
-    app.state.model = load_or_train_model()
+    app.state.model = load_or_train_model(use_mlflow="false")
     mock_redis = AsyncMock()
     mock_redis.get.return_value = None
     mock_redis.set.return_value = None
@@ -159,7 +148,7 @@ def app_client(db_connection) -> Generator[TestClient, None, None]:
 @pytest.fixture
 def app_client_without_model():
     """Тестовый клиент без загруженной модели"""
-    model = app.state.model
+    model = getattr(app.state, "model", None)
     app.state.model = None
     mock_redis = AsyncMock()
     app.state.pg_pool = None
@@ -179,7 +168,7 @@ def app_client_without_model():
 @pytest.fixture
 async def async_client(db_connection):
     """Асинхронный тестовый клиент"""
-    app.state.model = load_or_train_model()
+    app.state.model = load_or_train_model(use_mlflow="false")
     app.state.kafka_producer = AsyncMock()
     app.state.kafka_producer.send_moderation_request = AsyncMock()
     app.state.pg_pool = MockPool(db_connection)
@@ -200,7 +189,7 @@ async def async_client(db_connection):
 @pytest.fixture
 async def async_client_without_kafka(db_connection):
     """Асинхронный тестовый клиент без Kafka"""
-    app.state.model = load_or_train_model()
+    app.state.model = load_or_train_model(use_mlflow="false")
     app.state.kafka_producer = None
     app.state.pg_pool = MockPool(db_connection)
     mock_redis = AsyncMock()
@@ -237,7 +226,7 @@ def mock_request():
     request.app = Mock()
     request.app.state = Mock()
     request.app.state.model = Mock()
-    request.app.state.pg_pool = MockPool(db_connection)
+    request.app.state.pg_pool = MockPool(AsyncMock())
     request.app.state.redis_storage = AsyncMock()
     request.app.state.kafka_producer = AsyncMock()
     return request
@@ -300,7 +289,7 @@ async def db_connection():
         password=os.getenv("DB_PASSWORD", "postgres"),
         database=os.getenv("DB_NAME", "moderation"),
         host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", "6432")),
+        port=int(os.getenv("DB_PORT", "5432")),
     )
 
     try:
@@ -344,8 +333,8 @@ async def test_seller(db_connection):
     """Создание тестового продавца"""
     seller_id = await db_connection.fetchval(
         """
-        INSERT INTO sellers (username, email, password, is_verified) 
-        VALUES ($1, $2, $3, $4) 
+        INSERT INTO sellers (username, email, password, is_verified)
+        VALUES ($1, $2, $3, $4)
         RETURNING seller_id
         """,
         "test_seller",
@@ -361,9 +350,9 @@ async def test_ad(db_connection, test_seller):
     """Создание тестового объявления"""
     item_id = await db_connection.fetchval(
         """
-        INSERT INTO advertisement 
+        INSERT INTO advertisement
         (seller_id, name, description, category, images_qty, is_closed)
-        VALUES ($1, $2, $3, $4, $5, $6) 
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING item_id
         """,
         test_seller,
@@ -381,8 +370,8 @@ async def test_task(db_connection, test_ad):
     """Создание тестовой задачи модерации"""
     task_id = await db_connection.fetchval(
         """
-        INSERT INTO moderation_results (item_id, status) 
-        VALUES ($1, 'pending') 
+        INSERT INTO moderation_results (item_id, status)
+        VALUES ($1, 'pending')
         RETURNING id
         """,
         test_ad,

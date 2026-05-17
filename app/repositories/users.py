@@ -5,14 +5,16 @@ from json import dumps, loads
 from typing import Any, Mapping, Optional, Sequence
 
 import asyncpg
-from fastapi import HTTPException, Request
+from fastapi import Request
 
-from app.errors import UserNotFoundError
+from app.errors import DatabaseUnavailableError, RepositoryError, UserNotFoundError
 from app.models.users import UserModel
-from app.services.auth import hash_password
+from app.services.auth import hash_password, verify_password
 from observability.metrics import track_db_query
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_COLUMNS = {"name", "login", "password", "is_blocked"}
 
 
 @dataclass
@@ -37,10 +39,10 @@ class UserPostgresStorage:
                 return dict(row)
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД при создании пользователя {login}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
         except Exception as e:
             logger.error(f"Неожиданная ошибка при создании пользователя: {e}")
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+            raise RepositoryError()
 
     @track_db_query("delete")
     async def delete(self, id: int) -> Mapping[str, Any]:
@@ -59,12 +61,12 @@ class UserPostgresStorage:
                 raise UserNotFoundError()
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД при удалении пользователя {id}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
         except UserNotFoundError:
             raise
         except Exception as e:
             logger.error(f"Неожиданная ошибка при удалении пользователя: {e}")
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+            raise RepositoryError()
 
     @track_db_query("select")
     async def select(self, id: int) -> Mapping[str, Any]:
@@ -84,12 +86,12 @@ class UserPostgresStorage:
                 raise UserNotFoundError()
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД при получении пользователя {id}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
         except UserNotFoundError:
             raise
         except Exception as e:
             logger.error(f"Неожиданная ошибка при получении пользователя: {e}")
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+            raise RepositoryError()
 
     @track_db_query("select")
     async def select_by_login_and_password(self, login: str, password: str) -> Mapping[str, Any]:
@@ -97,50 +99,52 @@ class UserPostgresStorage:
         query = """
             SELECT *
             FROM account
-            WHERE
-                login = $1::TEXT
-                AND password = $2::TEXT
+            WHERE login = $1::TEXT
             LIMIT 1
         """
-        hashed_password = hash_password(password)
 
         try:
             async with self.request.app.state.pg_pool.acquire() as conn:
-                row = await conn.fetchrow(query, login, hashed_password)
-                if row:
+                row = await conn.fetchrow(query, login)
+                if row and verify_password(password, dict(row)["password"]):
                     return dict(row)
                 raise UserNotFoundError()
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД при поиске пользователя {login}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
         except UserNotFoundError:
             raise
         except Exception as e:
             logger.error(f"Неожиданная ошибка при поиске пользователя: {e}")
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+            raise RepositoryError()
 
     @track_db_query("select")
-    async def select_many(self) -> Sequence[Mapping[str, Any]]:
+    async def select_many(self, limit: int = 100) -> Sequence[Mapping[str, Any]]:
         """Получение всех пользователей"""
         query = """
             SELECT *
             FROM account
+            LIMIT $1::INTEGER
         """
 
         try:
             async with self.request.app.state.pg_pool.acquire() as conn:
-                rows = await conn.fetch(query)
+                rows = await conn.fetch(query, limit)
                 return [dict(row) for row in rows]
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД при получении списка пользователей: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
         except Exception as e:
             logger.error(f"Неожиданная ошибка при получении списка пользователей: {e}")
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+            raise RepositoryError()
 
     @track_db_query("update")
     async def update(self, id: int, **updates: Any) -> Mapping[str, Any]:
         """Обновление данных пользователя"""
+        invalid = set(updates.keys()) - ALLOWED_COLUMNS
+        if invalid:
+            raise ValueError(f"Invalid columns: {invalid}")
+
         keys, args = [], []
 
         for key, value in updates.items():
@@ -164,12 +168,12 @@ class UserPostgresStorage:
                 raise UserNotFoundError()
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД при обновлении пользователя {id}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
         except UserNotFoundError:
             raise
         except Exception as e:
             logger.error(f"Неожиданная ошибка при обновлении пользователя: {e}")
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+            raise RepositoryError()
 
     @track_db_query("update")
     async def block(self, id: int) -> Mapping[str, Any]:
@@ -193,12 +197,12 @@ class UserPostgresStorage:
                 raise UserNotFoundError()
         except asyncpg.PostgresError as e:
             logger.error(f"Ошибка БД при блокировке пользователя {id}: {e}")
-            raise HTTPException(status_code=503, detail="Сервис базы данных временно недоступен")
+            raise DatabaseUnavailableError()
         except UserNotFoundError:
             raise
         except Exception as e:
             logger.error(f"Неожиданная ошибка при блокировке пользователя: {e}")
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+            raise RepositoryError()
 
 
 @dataclass
